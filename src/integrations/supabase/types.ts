@@ -306,6 +306,10 @@ export type Database = {
           assigned_at: string | null
           assigned_user_id: string | null
           created_at: string
+          description_1: string | null
+          description_2: string | null
+          description_3: string | null
+          description_4: string | null
           email: string | null
           first_name: string | null
           full_name: string
@@ -334,6 +338,10 @@ export type Database = {
           assigned_at?: string | null
           assigned_user_id?: string | null
           created_at?: string
+          description_1?: string | null
+          description_2?: string | null
+          description_3?: string | null
+          description_4?: string | null
           email?: string | null
           first_name?: string | null
           full_name: string
@@ -362,6 +370,10 @@ export type Database = {
           assigned_at?: string | null
           assigned_user_id?: string | null
           created_at?: string
+          description_1?: string | null
+          description_2?: string | null
+          description_3?: string | null
+          description_4?: string | null
           email?: string | null
           first_name?: string | null
           full_name?: string

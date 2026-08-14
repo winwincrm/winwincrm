@@ -95,6 +95,13 @@ export const createUserFn = createServerFn({ method: "POST" })
 
       const newUserId = created.user.id;
 
+      const rollbackCreatedUser = async () => {
+        const { error: rollbackError } = await supabaseAdmin.auth.admin.deleteUser(newUserId);
+        if (rollbackError) {
+          console.error("[createUserFn] Failed to roll back partially created user", rollbackError);
+        }
+      };
+
       const profileUpdate = {
         full_name: data.full_name ?? null,
         office_id: targetOffice,
@@ -107,22 +114,30 @@ export const createUserFn = createServerFn({ method: "POST" })
         .update(profileUpdate as any)
         .eq("user_id", newUserId);
 
-
-      if (profErr) return fail("User created but profile update failed.", profErr);
+      if (profErr) {
+        await rollbackCreatedUser();
+        return fail("User profile setup failed. No account was created.", profErr);
+      }
 
 
       const { data: existingRoles, error: existingRolesErr } = await supabaseAdmin
         .from("user_roles")
         .select("role")
         .eq("user_id", newUserId);
-      if (existingRolesErr) return fail("User created but role check failed.", existingRolesErr);
+      if (existingRolesErr) {
+        await rollbackCreatedUser();
+        return fail("User role setup failed. No account was created.", existingRolesErr);
+      }
 
       const has = (existingRoles ?? []).some((r) => r.role === targetRole);
       if (!has) {
         const { error: roleErr } = await supabaseAdmin
           .from("user_roles")
           .insert({ user_id: newUserId, role: targetRole });
-        if (roleErr) return fail("User created but role assignment failed.", roleErr);
+        if (roleErr) {
+          await rollbackCreatedUser();
+          return fail("User role setup failed. No account was created.", roleErr);
+        }
       }
 
       return { ok: true, user_id: newUserId };
