@@ -1,0 +1,2 @@
+UPDATE public.leads SET platform = NULL WHERE office_id='45695eb5-e837-4958-bab1-467de7378988' AND platform='Cold Import';
+UPDATE public.leads SET platform = 'manual' WHERE id IN ('448cfbc3-dc34-4560-becc-bcd110c46d04','266ea8b6-6776-4bc2-b20c-9caf518a8bd4');

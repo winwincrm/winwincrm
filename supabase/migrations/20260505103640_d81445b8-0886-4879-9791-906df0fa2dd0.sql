@@ -1,0 +1,2 @@
+DELETE FROM public.user_roles WHERE user_id='9e0a659f-d2dd-4901-ac88-079d6de6461c' AND role='office';
+INSERT INTO public.user_roles (user_id, role) VALUES ('9e0a659f-d2dd-4901-ac88-079d6de6461c','agent') ON CONFLICT DO NOTHING;

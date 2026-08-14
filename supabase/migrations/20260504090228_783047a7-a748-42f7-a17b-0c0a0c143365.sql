@@ -1,0 +1,1 @@
+INSERT INTO public.ip_whitelist (ip_address, label, status) VALUES ('85.206.241.12', '9K office', 'active');

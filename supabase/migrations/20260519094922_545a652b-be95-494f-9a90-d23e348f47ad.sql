@@ -1,0 +1,1 @@
+DELETE FROM public.offices WHERE id IN ('87154ed9-45d0-4be5-becd-9ec5a6bbb24c','45695eb5-e837-4958-bab1-467de7378988');

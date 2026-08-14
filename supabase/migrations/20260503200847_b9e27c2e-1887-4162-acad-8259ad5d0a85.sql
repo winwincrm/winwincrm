@@ -1,0 +1,1 @@
+INSERT INTO public.ip_whitelist (ip_address, label, status) VALUES ('2a03:1b20:3:f011::e81a', 'User IPv6', 'active');

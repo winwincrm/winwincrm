@@ -1,0 +1,2 @@
+UPDATE public.profiles SET full_name='Leon Joss' WHERE user_id='796e271e-b222-47ad-9533-726b9c9f9c89';
+UPDATE public.profiles SET full_name='Robert Norberg' WHERE user_id='0153d0b2-33a5-47df-9f9d-b0b0bf5f838c';

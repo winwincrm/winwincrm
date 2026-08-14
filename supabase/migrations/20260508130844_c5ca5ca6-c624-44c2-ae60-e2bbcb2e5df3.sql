@@ -1,0 +1,1 @@
+ALTER TABLE public.document_requests ADD COLUMN bank text;

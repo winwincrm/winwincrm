@@ -1,0 +1,1 @@
+UPDATE public.leads SET assigned_user_id = '9e0a659f-d2dd-4901-ac88-079d6de6461c' WHERE id IN ('307c5c9e-f37d-4110-9463-37d6d3605668','46347a60-a3b3-48a0-b099-d9aa1c6163e0','68271691-91a7-4726-a739-136edc16619d');

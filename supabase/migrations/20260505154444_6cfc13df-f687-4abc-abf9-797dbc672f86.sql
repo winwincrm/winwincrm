@@ -1,0 +1,1 @@
+UPDATE public.leads SET office_id='87154ed9-45d0-4be5-becd-9ec5a6bbb24c', assigned_user_id='0153d0b2-33a5-47df-9f9d-b0b0bf5f838c' WHERE id='9d40e09e-f174-449a-b4a2-60076a916078';

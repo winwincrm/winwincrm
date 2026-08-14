@@ -1,0 +1,1 @@
+UPDATE public.profiles SET office_id = '5af668d7-546e-439a-a4dd-85b121cd3aaa' WHERE email IN ('mathiaskoch@grouptk.demo','marvinisenov@grouptk.demo');

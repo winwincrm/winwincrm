@@ -1,0 +1,1 @@
+UPDATE public.profiles SET full_name = 'Andreas Kallas' WHERE user_id = '2c39c548-0c5a-4cef-8653-010976e0c814';

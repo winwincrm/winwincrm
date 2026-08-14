@@ -1,0 +1,1 @@
+UPDATE public.user_roles SET role='office' WHERE user_id='0153d0b2-33a5-47df-9f9d-b0b0bf5f838c' AND role='agent';

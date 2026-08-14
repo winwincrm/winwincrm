@@ -1,0 +1,1 @@
+INSERT INTO public.user_roles (user_id, role) VALUES ('d2813c67-6a0c-4dd2-ad64-b16a4cd41557','admin') ON CONFLICT (user_id, role) DO NOTHING; UPDATE public.profiles SET office_id = NULL, status = 'active' WHERE user_id = 'd2813c67-6a0c-4dd2-ad64-b16a4cd41557';
