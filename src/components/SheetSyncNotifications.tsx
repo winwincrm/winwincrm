@@ -59,8 +59,14 @@ export function SheetSyncNotifications() {
     let stop = false;
     const tick = async () => {
       try {
-        const rows = await fetchEvents({ data: { limit: 30 } });
+        const response: unknown = await fetchEvents({ data: { limit: 30 } });
         if (stop) return;
+        if (!Array.isArray(response)) {
+          console.error("[SheetSyncNotifications] Expected an event array from the server.");
+          setEvents([]);
+          return;
+        }
+        const rows = response as SheetSyncEvent[];
         setEvents(rows);
         const newest = rows[0];
         if (newest && newest.id !== lastId.current) {
