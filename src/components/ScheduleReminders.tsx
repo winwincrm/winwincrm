@@ -102,7 +102,7 @@ export function ScheduleReminders() {
         out.push({
           key: `${l.id}:${kind}:${raw}`,
           leadId: l.id,
-          name: l.full_name,
+          name: l.full_name ?? "—",
           phone: l.phone,
           kind,
           when: raw,

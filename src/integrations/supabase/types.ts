@@ -85,33 +85,201 @@ export type Database = {
       api_logs: {
         Row: {
           created_at: string
-          endpoint: string | null
           error_message: string | null
           id: string
           ip_address: string | null
+          office_id: string | null
           payload: Json | null
-          source: string | null
-          status: string | null
+          status: "success" | "failed"
         }
         Insert: {
           created_at?: string
-          endpoint?: string | null
           error_message?: string | null
           id?: string
           ip_address?: string | null
+          office_id?: string | null
           payload?: Json | null
-          source?: string | null
-          status?: string | null
+          status: "success" | "failed"
         }
         Update: {
           created_at?: string
-          endpoint?: string | null
           error_message?: string | null
           id?: string
           ip_address?: string | null
+          office_id?: string | null
           payload?: Json | null
-          source?: string | null
-          status?: string | null
+          status?: "success" | "failed"
+        }
+        Relationships: []
+      }
+      app_secrets: {
+        Row: {
+          key: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: []
+      }
+      app_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
+      bookkeeping_clients: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          name_ciphertext: string
+          name_iv: string
+          name_tag: string
+          office_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name_ciphertext: string
+          name_iv: string
+          name_tag: string
+          office_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name_ciphertext?: string
+          name_iv?: string
+          name_tag?: string
+          office_id?: string
+        }
+        Relationships: []
+      }
+      bookkeeping_deposits: {
+        Row: {
+          amount_ciphertext: string
+          amount_iv: string
+          amount_tag: string
+          client_id: string
+          created_at: string
+          created_by: string | null
+          deposit_date: string
+          id: string
+          note_ciphertext: string | null
+          note_iv: string | null
+          note_tag: string | null
+          office_id: string
+        }
+        Insert: {
+          amount_ciphertext: string
+          amount_iv: string
+          amount_tag: string
+          client_id: string
+          created_at?: string
+          created_by?: string | null
+          deposit_date: string
+          id?: string
+          note_ciphertext?: string | null
+          note_iv?: string | null
+          note_tag?: string | null
+          office_id: string
+        }
+        Update: {
+          amount_ciphertext?: string
+          amount_iv?: string
+          amount_tag?: string
+          client_id?: string
+          created_at?: string
+          created_by?: string | null
+          deposit_date?: string
+          id?: string
+          note_ciphertext?: string | null
+          note_iv?: string | null
+          note_tag?: string | null
+          office_id?: string
+        }
+        Relationships: []
+      }
+      bookkeeping_log_entries: {
+        Row: {
+          amount_ciphertext: string
+          amount_iv: string
+          amount_tag: string
+          cashout: boolean
+          client_name_ciphertext: string
+          client_name_iv: string
+          client_name_tag: string
+          created_at: string
+          created_by: string | null
+          entry_month: string
+          id: string
+          kyc: boolean
+          office_label: string | null
+          sent: boolean
+          updated_at: string
+          verification: boolean
+        }
+        Insert: {
+          amount_ciphertext: string
+          amount_iv: string
+          amount_tag: string
+          cashout?: boolean
+          client_name_ciphertext: string
+          client_name_iv: string
+          client_name_tag: string
+          created_at?: string
+          created_by?: string | null
+          entry_month: string
+          id?: string
+          kyc?: boolean
+          office_label?: string | null
+          sent?: boolean
+          updated_at?: string
+          verification?: boolean
+        }
+        Update: {
+          amount_ciphertext?: string
+          amount_iv?: string
+          amount_tag?: string
+          cashout?: boolean
+          client_name_ciphertext?: string
+          client_name_iv?: string
+          client_name_tag?: string
+          created_at?: string
+          created_by?: string | null
+          entry_month?: string
+          id?: string
+          kyc?: boolean
+          office_label?: string | null
+          sent?: boolean
+          updated_at?: string
+          verification?: boolean
         }
         Relationships: []
       }
@@ -119,32 +287,59 @@ export type Database = {
         Row: {
           created_at: string
           email: string | null
+          handled_at: string | null
+          handled_by: string | null
           id: string
-          name: string | null
-          payload: Json | null
-          phone: string | null
+          ip: string | null
+          message: string | null
+          name: string
+          office_id: string
+          phone: string
+          preferred_time: string | null
+          raw: Json | null
           source: string | null
-          status: string
+          status: "new" | "seen" | "handled" | "dismissed"
+          topic: string | null
+          updated_at: string
+          user_agent: string | null
         }
         Insert: {
           created_at?: string
           email?: string | null
+          handled_at?: string | null
+          handled_by?: string | null
           id?: string
-          name?: string | null
-          payload?: Json | null
-          phone?: string | null
+          ip?: string | null
+          message?: string | null
+          name: string
+          office_id: string
+          phone: string
+          preferred_time?: string | null
+          raw?: Json | null
           source?: string | null
-          status?: string
+          status?: "new" | "seen" | "handled" | "dismissed"
+          topic?: string | null
+          updated_at?: string
+          user_agent?: string | null
         }
         Update: {
           created_at?: string
           email?: string | null
+          handled_at?: string | null
+          handled_by?: string | null
           id?: string
-          name?: string | null
-          payload?: Json | null
-          phone?: string | null
+          ip?: string | null
+          message?: string | null
+          name?: string
+          office_id?: string
+          phone?: string
+          preferred_time?: string | null
+          raw?: Json | null
           source?: string | null
-          status?: string
+          status?: "new" | "seen" | "handled" | "dismissed"
+          topic?: string | null
+          updated_at?: string
+          user_agent?: string | null
         }
         Relationships: []
       }
@@ -248,6 +443,24 @@ export type Database = {
           },
         ]
       }
+      lead_sources: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
       lead_transfers: {
         Row: {
           from_office_id: string | null
@@ -306,26 +519,31 @@ export type Database = {
           assigned_at: string | null
           assigned_user_id: string | null
           created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
           description_1: string | null
           description_2: string | null
           description_3: string | null
           description_4: string | null
           email: string | null
           first_name: string | null
-          full_name: string
-          hide_in_house_from_agents: boolean | null
+          external_lead_id: string | null
+          full_name: string | null
+          hide_in_house_from_agents: boolean
           id: string
-          is_in_house: boolean | null
+          is_in_house: boolean
           last_contacted_at: string | null
           last_name: string | null
           lead_kind: string | null
+          madara_lead_id: string | null
           office_id: string | null
           origin_agent_id: string | null
           origin_agent_name: string | null
           origin_office_id: string | null
-          payload: Json | null
+          payload: Json
           percentage: number | null
           phone: string | null
+          phone_k9: string | null
           platform: string | null
           source: string | null
           status: Database["public"]["Enums"]["lead_status"]
@@ -338,26 +556,31 @@ export type Database = {
           assigned_at?: string | null
           assigned_user_id?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           description_1?: string | null
           description_2?: string | null
           description_3?: string | null
           description_4?: string | null
           email?: string | null
+          external_lead_id?: string | null
           first_name?: string | null
-          full_name: string
-          hide_in_house_from_agents?: boolean | null
+          full_name?: string | null
+          hide_in_house_from_agents?: boolean
           id?: string
-          is_in_house?: boolean | null
+          is_in_house?: boolean
           last_contacted_at?: string | null
           last_name?: string | null
           lead_kind?: string | null
+          madara_lead_id?: string | null
           office_id?: string | null
           origin_agent_id?: string | null
           origin_agent_name?: string | null
           origin_office_id?: string | null
-          payload?: Json | null
+          payload: Json
           percentage?: number | null
           phone?: string | null
+          phone_k9?: string | null
           platform?: string | null
           source?: string | null
           status?: Database["public"]["Enums"]["lead_status"]
@@ -370,26 +593,31 @@ export type Database = {
           assigned_at?: string | null
           assigned_user_id?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           description_1?: string | null
           description_2?: string | null
           description_3?: string | null
           description_4?: string | null
           email?: string | null
+          external_lead_id?: string | null
           first_name?: string | null
-          full_name?: string
-          hide_in_house_from_agents?: boolean | null
+          full_name?: string | null
+          hide_in_house_from_agents?: boolean
           id?: string
-          is_in_house?: boolean | null
+          is_in_house?: boolean
           last_contacted_at?: string | null
           last_name?: string | null
           lead_kind?: string | null
+          madara_lead_id?: string | null
           office_id?: string | null
           origin_agent_id?: string | null
           origin_agent_name?: string | null
           origin_office_id?: string | null
-          payload?: Json | null
+          payload?: Json
           percentage?: number | null
           phone?: string | null
+          phone_k9?: string | null
           platform?: string | null
           source?: string | null
           status?: Database["public"]["Enums"]["lead_status"]
@@ -465,6 +693,7 @@ export type Database = {
           name: string
           slug: string | null
           status: string
+          updated_at: string
         }
         Insert: {
           company_name?: string | null
@@ -475,6 +704,7 @@ export type Database = {
           name: string
           slug?: string | null
           status?: string
+          updated_at?: string
         }
         Update: {
           company_name?: string | null
@@ -485,6 +715,7 @@ export type Database = {
           name?: string
           slug?: string | null
           status?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -494,6 +725,7 @@ export type Database = {
           email: string | null
           full_name: string | null
           language_preference: string
+          manager_id: string | null
           must_change_password: boolean
           office_id: string | null
           status: string
@@ -506,6 +738,7 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           language_preference?: string
+          manager_id?: string | null
           must_change_password?: boolean
           office_id?: string | null
           status?: string
@@ -518,6 +751,7 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           language_preference?: string
+          manager_id?: string | null
           must_change_password?: boolean
           office_id?: string | null
           status?: string
@@ -541,6 +775,171 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      role_permissions: {
+        Row: {
+          actions: Json
+          dashboard: Json
+          lead_fields: Json
+          nav_items: Json
+          role: Database["public"]["Enums"]["app_role"]
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          actions: Json
+          dashboard: Json
+          lead_fields: Json
+          nav_items: Json
+          role: Database["public"]["Enums"]["app_role"]
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          actions?: Json
+          dashboard?: Json
+          lead_fields?: Json
+          nav_items?: Json
+          role?: Database["public"]["Enums"]["app_role"]
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      sheet_sync_events: {
+        Row: {
+          created_at: string
+          detail: string | null
+          id: string
+          kind: string
+          lead_id: string | null
+          lead_name: string | null
+          office_id: string | null
+          sheet_url: string | null
+          sync_id: string | null
+          sync_name: string | null
+        }
+        Insert: {
+          created_at?: string
+          detail?: string | null
+          id?: string
+          kind: string
+          lead_id?: string | null
+          lead_name?: string | null
+          office_id?: string | null
+          sheet_url?: string | null
+          sync_id?: string | null
+          sync_name?: string | null
+        }
+        Update: {
+          created_at?: string
+          detail?: string | null
+          id?: string
+          kind?: string
+          lead_id?: string | null
+          lead_name?: string | null
+          office_id?: string | null
+          sheet_url?: string | null
+          sync_id?: string | null
+          sync_name?: string | null
+        }
+        Relationships: []
+      }
+      sheet_sync_rows: {
+        Row: {
+          content_hash: string
+          created_at: string
+          id: string
+          lead_id: string | null
+          row_key: string
+          sync_id: string
+          updated_at: string
+        }
+        Insert: {
+          content_hash?: string
+          created_at?: string
+          id?: string
+          lead_id?: string | null
+          row_key: string
+          sync_id: string
+          updated_at?: string
+        }
+        Update: {
+          content_hash?: string
+          created_at?: string
+          id?: string
+          lead_id?: string | null
+          row_key?: string
+          sync_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      sheet_syncs: {
+        Row: {
+          assigned_user_id: string | null
+          consecutive_failures: number
+          created_at: string
+          created_by: string | null
+          enabled: boolean
+          id: string
+          interval_seconds: number
+          last_error: string | null
+          last_run_at: string | null
+          last_status: string | null
+          list_name: string | null
+          mapping: Json
+          name: string
+          next_run_at: string
+          office_id: string | null
+          sheet_url: string
+          source: string | null
+          update_existing: boolean
+          updated_at: string
+        }
+        Insert: {
+          assigned_user_id?: string | null
+          consecutive_failures?: number
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          interval_seconds?: number
+          last_error?: string | null
+          last_run_at?: string | null
+          last_status?: string | null
+          list_name?: string | null
+          mapping: Json
+          name?: string
+          next_run_at?: string
+          office_id?: string | null
+          sheet_url: string
+          source?: string | null
+          update_existing?: boolean
+          updated_at?: string
+        }
+        Update: {
+          assigned_user_id?: string | null
+          consecutive_failures?: number
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          interval_seconds?: number
+          last_error?: string | null
+          last_run_at?: string | null
+          last_status?: string | null
+          list_name?: string | null
+          mapping?: Json
+          name?: string
+          next_run_at?: string
+          office_id?: string | null
+          sheet_url?: string
+          source?: string | null
+          update_existing?: boolean
+          updated_at?: string
+        }
+        Relationships: []
       }
       teams: {
         Row: {
@@ -576,18 +975,51 @@ export type Database = {
       }
       user_roles: {
         Row: {
+          created_at: string
           id: string
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Insert: {
+          created_at?: string
           id?: string
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Update: {
+          created_at?: string
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_permission_overrides: {
+        Row: {
+          actions: Json
+          dashboard: Json
+          lead_fields: Json
+          nav_items: Json
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          actions: Json
+          dashboard: Json
+          lead_fields: Json
+          nav_items: Json
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          actions?: Json
+          dashboard?: Json
+          lead_fields?: Json
+          nav_items?: Json
+          updated_at?: string
+          updated_by?: string | null
           user_id?: string
         }
         Relationships: []
@@ -626,6 +1058,7 @@ export type Database = {
           p_agent?: string[]
           p_country?: string[]
           p_from?: string
+          p_inbox_only?: boolean
           p_office?: string[]
           p_platform?: string[]
           p_q?: string
@@ -642,11 +1075,13 @@ export type Database = {
           p_country?: string[]
           p_from?: string
           p_group?: string
+          p_inbox_only?: boolean
           p_limit?: number
           p_office?: string[]
           p_offset?: number
           p_platform?: string[]
           p_q?: string
+          p_sort?: string
           p_source?: string[]
           p_src?: string
           p_status?: string[]
@@ -690,9 +1125,15 @@ export type Database = {
         | "no_answer_1"
         | "no_answer_2"
         | "no_answer_3"
+        | "no_answer_4"
+        | "no_answer_5"
         | "try_again"
         | "not_available"
+        | "low_potential"
+        | "high_potential"
         | "wrong_number"
+        | "wrong_person"
+        | "bad_number"
         | "appointment"
         | "qualified"
         | "converted"
@@ -834,9 +1275,15 @@ export const Constants = {
         "no_answer_1",
         "no_answer_2",
         "no_answer_3",
+        "no_answer_4",
+        "no_answer_5",
         "try_again",
         "not_available",
+        "low_potential",
+        "high_potential",
         "wrong_number",
+        "wrong_person",
+        "bad_number",
         "appointment",
         "qualified",
         "converted",

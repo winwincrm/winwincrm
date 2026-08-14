@@ -137,14 +137,14 @@ function CalendarContent() {
         const ap = typeof p.appointment_at === "string" ? p.appointment_at : null;
         if (cb) {
           out.push({
-            id: l.id, full_name: l.full_name, phone: l.phone, status: l.status,
+            id: l.id, full_name: l.full_name ?? "—", phone: l.phone, status: l.status,
             assigned_user_id: l.assigned_user_id, office_id: l.office_id,
             kind: "callback", when: cb,
           });
         }
         if (ap) {
           out.push({
-            id: l.id, full_name: l.full_name, phone: l.phone, status: l.status,
+            id: l.id, full_name: l.full_name ?? "—", phone: l.phone, status: l.status,
             assigned_user_id: l.assigned_user_id, office_id: l.office_id,
             kind: "appointment", when: ap,
           });
