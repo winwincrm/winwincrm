@@ -106,7 +106,7 @@ export const createUserFn = createServerFn({ method: "POST" })
         full_name: data.full_name ?? null,
         office_id: targetOffice,
         manager_id: targetManager,
-        must_change_password: true,
+        must_change_password: false,
       } as unknown as Record<string, unknown>;
       const { error: profErr } = await supabaseAdmin
         .from("profiles")
@@ -353,12 +353,15 @@ export const resetUserPasswordFn = createServerFn({ method: "POST" })
     });
     if (error) return { ok: false, message: error.message || "Failed to reset password." };
 
-    // Force password change on next login
-    await admin
+    // Passwords are administrator-managed; never force a user-side reset.
+    const { error: profileError } = await admin
       .from("profiles")
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .update({ must_change_password: true } as any)
+      .update({ must_change_password: false } as any)
       .eq("user_id", data.user_id);
+    if (profileError) {
+      console.error("[resetUserPasswordFn] Failed to clear password reset flag", profileError);
+    }
 
     return { ok: true };
   });

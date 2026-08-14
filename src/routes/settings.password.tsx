@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,13 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-context";
 
 export const Route = createFileRoute("/settings/password")({ component: PasswordPage });
 
 function PasswordPage() {
   const { t } = useTranslation();
+  const { role } = useAuth();
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
+
+  if (role !== "admin") return <Navigate to="/settings/profile" />;
 
   const change = async () => {
     if (pw.length < 8) { toast.error("≥ 8 chars"); return; }

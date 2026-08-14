@@ -170,8 +170,8 @@
     "new": "New user",
     "role": "Role",
     "full_name": "Full name",
-    "temp_password": "Temporary password",
-    "must_reset": "User will reset password on first login",
+    "temp_password": "Password",
+    "must_reset": "The password is managed by an administrator",
     "create_user": "Create user"
   },
   "roles": {

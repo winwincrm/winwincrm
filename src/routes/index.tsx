@@ -17,15 +17,14 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const { session, loading, profile } = useAuth();
+  const { session, loading } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (loading) return;
     if (!session) navigate({ to: "/login" });
-    else if (profile?.must_change_password) navigate({ to: "/change-password" });
     else navigate({ to: "/dashboard" });
-  }, [session, loading, profile, navigate]);
+  }, [session, loading, navigate]);
 
   return (
     <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">

@@ -171,7 +171,7 @@ function UsersContent() {
         headers,
       });
       if (!result.ok) throw new Error(result.message);
-      toast.success("User created. They'll reset password on first login.");
+      toast.success("User created. The administrator-set password is active.");
       setOpen(false);
       setForm({
         email: "",
@@ -729,7 +729,7 @@ function ResetPasswordDialog({
         headers,
       });
       if (!result.ok) throw new Error(result.message);
-      toast.success("Password reset. User must change it on next login.");
+      toast.success("Password updated. The administrator-set password is active.");
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to reset password");
@@ -746,7 +746,7 @@ function ResetPasswordDialog({
         </DialogHeader>
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Set a new temporary password for <b>{user.full_name || user.email}</b>. They'll be prompted to change it on next login.
+            Set a new password for <b>{user.full_name || user.email}</b>. Only an administrator can replace it in the CRM.
           </p>
           <div className="space-y-1.5">
             <Label>New password</Label>

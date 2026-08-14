@@ -178,8 +178,8 @@
     "new": "Nuovo utente",
     "role": "Ruolo",
     "full_name": "Nome completo",
-    "temp_password": "Password temporanea",
-    "must_reset": "L'utente reimposterà la password al primo accesso",
+    "temp_password": "Password",
+    "must_reset": "La password è gestita da un amministratore",
     "create_user": "Crea utente"
   },
   "roles": {

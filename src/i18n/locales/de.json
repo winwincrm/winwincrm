@@ -129,8 +129,8 @@
     "new": "Neuer Benutzer",
     "role": "Rolle",
     "full_name": "Vollständiger Name",
-    "temp_password": "Temporäres Passwort",
-    "must_reset": "Benutzer setzt Passwort beim ersten Login zurück",
+    "temp_password": "Passwort",
+    "must_reset": "Das Passwort wird von einem Administrator verwaltet",
     "create_user": "Benutzer erstellen"
   },
   "roles": {

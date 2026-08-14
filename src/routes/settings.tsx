@@ -1,6 +1,7 @@
 import { createFileRoute, Link, Outlet, useRouterState, Navigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { User, Languages, KeyRound, Monitor } from "lucide-react";
 
@@ -15,6 +16,7 @@ const TABS = [
 
 function SettingsLayout() {
   const { t } = useTranslation();
+  const { role } = useAuth();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   // Redirect /settings → /settings/profile
@@ -26,7 +28,7 @@ function SettingsLayout() {
         <h1 className="text-2xl font-semibold tracking-tight">{t("settings.title")}</h1>
 
         <div className="border-b flex flex-wrap gap-1">
-          {TABS.map((tab) => {
+          {TABS.filter((tab) => tab.to !== "/settings/password" || role === "admin").map((tab) => {
             const Icon = tab.icon;
             const active = pathname === tab.to;
             return (

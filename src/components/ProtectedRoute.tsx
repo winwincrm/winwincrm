@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useAuth, type AppRole } from "@/lib/auth-context";
 import { AppShell } from "./AppShell";
@@ -16,7 +16,6 @@ export function ProtectedRoute({
 }) {
   const { session, role, loading, profile, signOut, refresh, loadError } = useAuth();
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   useEffect(() => {
     if (loading) return;
@@ -35,14 +34,10 @@ export function ProtectedRoute({
       });
       return;
     }
-    if (profile.must_change_password && pathname !== "/change-password") {
-      navigate({ to: "/change-password" });
-      return;
-    }
     if (roles && !roles.includes(role)) {
       navigate({ to: "/dashboard" });
     }
-  }, [session, role, loading, profile, pathname, roles, navigate, signOut]);
+  }, [session, role, loading, profile, roles, navigate, signOut]);
 
   if (loading || !session) {
     return (
@@ -90,7 +85,6 @@ export function ProtectedRoute({
     );
   }
 
-  if (profile.must_change_password && pathname !== "/change-password") return null;
   if (roles && !roles.includes(role)) return null;
 
   return <AppShell>{children}</AppShell>;
