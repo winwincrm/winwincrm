@@ -22,6 +22,9 @@ export const HOST_TO_OFFICE: Record<string, string> = {
 
 /** Hosts that are not bound to a single office — any authenticated user may log in. */
 export const MULTI_OFFICE_HOSTS: ReadonlySet<string> = new Set([
+  "crmwinwin.com",
+  "www.crmwinwin.com",
+  "winwincrm.vercel.app",
   "crm.orangeskies.org",
   "office-link-crm.lovable.app",
   "tiktakcrm.com",
