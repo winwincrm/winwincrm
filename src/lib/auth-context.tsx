@@ -40,10 +40,10 @@ async function loadProfileData(uid: string) {
   if (nextProfile?.language_preference) {
     void i18n.changeLanguage(nextProfile.language_preference);
   }
-  const list = (roles ?? []).map((r: { role: AppRole }) => r.role);
+  const list = (roles ?? []).map((r: { role: string }) => String(r.role));
   const nextRole: AppRole | null = list.includes("admin")
     ? "admin"
-    : list.includes("superiormanager")
+    : list.includes("superiormanager") || list.includes("supervisor")
       ? "superiormanager"
       : list.includes("manager")
         ? "manager"

@@ -7,9 +7,17 @@ export const Route = createFileRoute("/sheet-syncs")({
   head: () => ({
     meta: [
       { title: "Google Sheets Sync — YellowSkies CRM" },
-      { name: "description", content: "Manage linked Google Sheets, review sync history and remove sheet links without deleting imported leads." },
+      {
+        name: "description",
+        content:
+          "Manage office-assigned Google Sheets, review sync history, and safely remove links.",
+      },
       { property: "og:title", content: "Google Sheets Sync — YellowSkies CRM" },
-      { property: "og:description", content: "Linked Google Sheets, detailed change history and safe link removal." },
+      {
+        property: "og:description",
+        content:
+          "Office-scoped Google Sheet links, detailed change history, and safe link removal.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -23,7 +31,8 @@ function Page() {
         <div>
           <h1 className="text-2xl font-semibold">Google Sheets</h1>
           <p className="text-sm text-muted-foreground">
-            Every linked sheet, its full change history, and safe link removal — imported leads are always kept.
+            Sheet links are assigned to an office. Managers see only their office; administrators
+            see every office.
           </p>
         </div>
         <SheetSyncManager />

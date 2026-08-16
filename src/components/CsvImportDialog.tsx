@@ -17,7 +17,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { emailKey, emailVariants, normalizeEmail } from "@/lib/email-normalize";
 import { useAuth } from "@/lib/auth-context";
-import { Upload, Trash2, Download, Link2 } from "lucide-react";
+import { Upload, Trash2, Download, Link2, Building2 } from "lucide-react";
 import { parseLeadBlocks, type ParsedLead } from "@/lib/parseLeadText";
 import { fetchSheetCsv } from "@/lib/sheets.functions";
 import { saveSheetSync, setSheetSyncEnabled, runSheetSyncNow } from "@/lib/sheet-syncs.functions";
@@ -199,6 +199,25 @@ export function CsvImportDialog({
   } | null>(null);
 
   const unassignedFallbackId = role === "superiormanager" ? profile?.user_id ?? null : null;
+  const officeOptions = useMemo(
+    () => role === "admin" ? offices : offices.filter((office) => office.id === profile?.office_id),
+    [offices, profile?.office_id, role],
+  );
+  const selectedOfficeName = officeId === INBOX
+    ? null
+    : officeOptions.find((office) => office.id === officeId)?.name ?? null;
+
+  // A manager's office is an authorization boundary, not a user-selectable
+  // import option. The server enforces the same rule independently.
+  useEffect(() => {
+    if (!open) return;
+    if (role && role !== "admin") {
+      setOfficeId(profile?.office_id ?? NONE);
+      setAssigneeId(MANAGER);
+      return;
+    }
+    if (role === "admin" && defaultOfficeId) setOfficeId(defaultOfficeId);
+  }, [defaultOfficeId, open, profile?.office_id, role]);
 
   const reset = () => {
     setFile(null); setHeaders([]); setRows([]); setMapping({});
@@ -483,7 +502,7 @@ export function CsvImportDialog({
 
   /** Saves the sync config and turns polling on. Called only after the duplicate step. */
   const beginLiveSync = async () => {
-    if (officeId === NONE) {
+    if (officeId === NONE || officeId === INBOX) {
       toast.error(t("leads.import.choose_office", { defaultValue: "Please choose an office" }));
       return;
     }
@@ -527,7 +546,7 @@ export function CsvImportDialog({
   // through the same duplicate-review step as a manual import first, and the
   // background sync only starts once the user has decided what to do.
   const startLive = async () => {
-    if (officeId === NONE) {
+    if (officeId === NONE || officeId === INBOX) {
       toast.error(t("leads.import.choose_office", { defaultValue: "Please choose an office" }));
       return;
     }
@@ -828,7 +847,7 @@ export function CsvImportDialog({
 
   // Step 1 — prepare: build rows, detect duplicates. If any → show review UI.
   const doPrepare = async () => {
-    if (officeId === NONE) {
+    if (officeId === NONE || (tab === "sheet" && officeId === INBOX)) {
       toast.error(t("leads.import.choose_office", { defaultValue: "Please choose an office" }));
       return;
     }
@@ -1144,7 +1163,7 @@ export function CsvImportDialog({
     setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
-  const canImport = officeId !== NONE && !importing && (
+  const canImport = officeId !== NONE && (tab !== "sheet" || officeId !== INBOX) && !importing && (
     (tab !== "paste" && rows.length > 0) ||
     (tab === "paste" && parsedLeads.length > 0)
   );
@@ -1416,7 +1435,11 @@ export function CsvImportDialog({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <Label>{t("common.office", { defaultValue: "Office" })}</Label>
-                <Select value={officeId} onValueChange={(v) => { setOfficeId(v); setAssigneeId(MANAGER); }}>
+                <Select
+                  value={officeId}
+                  disabled={role !== "admin"}
+                  onValueChange={(v) => { setOfficeId(v); setAssigneeId(MANAGER); }}
+                >
                   <SelectTrigger><SelectValue placeholder={t("common.office", { defaultValue: "Office" })} /></SelectTrigger>
                   <SelectContent>
                     {role === "admin" && (
@@ -1424,7 +1447,7 @@ export function CsvImportDialog({
                         {t("leads.import.admin_inbox", { defaultValue: "📥 Admin Inbox (distribute later)" })}
                       </SelectItem>
                     )}
-                    {offices.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+                    {officeOptions.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -1658,6 +1681,16 @@ export function CsvImportDialog({
                       defaultValue: "The sheet must be shared as “Anyone with the link → Viewer”. The first row is used as headers; the tab in the link (gid) is the one imported.",
                     })}
                   </p>
+                  <div className="mt-2 flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                    <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    {selectedOfficeName ? (
+                      <span>
+                        This link belongs to <b>{selectedOfficeName}</b>. Only administrators and managers assigned to this office can see it.
+                      </span>
+                    ) : (
+                      <span className="text-destructive">Select an office before saving this Google Sheets link.</span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Live auto-sync */}

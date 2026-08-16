@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireAccessibleSheetSync } from "@/lib/sheet-access.server";
 
 /**
  * Given a batch of lead ids, returns the subset that is tracked by a Google
@@ -38,7 +39,8 @@ export const sheetLinkedLeadIds = createServerFn({ method: "POST" })
 export const leadIdsForSheetSync = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => z.object({ syncId: z.string().uuid() }).parse(i))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { access } = await requireAccessibleSheetSync(context, data.syncId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const admin = supabaseAdmin as any;
@@ -53,8 +55,9 @@ export const leadIdsForSheetSync = createServerFn({ method: "POST" })
     const alive: string[] = [];
     for (let i = 0; i < ids.length; i += 500) {
       const chunk = ids.slice(i, i + 500);
-      const { data: leads, error: lErr } = await admin
-        .from("leads").select("id, assigned_user_id").in("id", chunk);
+      let leadQuery = admin.from("leads").select("id, assigned_user_id").in("id", chunk);
+      if (!access.isAdmin) leadQuery = leadQuery.eq("office_id", access.officeId);
+      const { data: leads, error: lErr } = await leadQuery;
       if (lErr) throw new Error(lErr.message);
       for (const l of (leads ?? []) as Array<{ id: string; assigned_user_id: string | null }>) {
         alive.push(l.id);

@@ -120,8 +120,10 @@ export async function computePendingDuplicates(
   const byPhone = new Map<string, LeadRow>();
   const emailList = [...emails];
   for (let i = 0; i < emailList.length; i += 200) {
-    const { data } = await admin.from("leads").select(cols)
+    let query = admin.from("leads").select(cols)
       .in("email", emailList.slice(i, i + 200)).is("deleted_at", null);
+    if (sync.office_id) query = query.eq("office_id", sync.office_id);
+    const { data } = await query;
     for (const r of (data ?? []) as LeadRow[]) {
       const key = (r.email ?? "").toLowerCase();
       if (key && !byEmail.has(key)) byEmail.set(key, r);
@@ -129,8 +131,10 @@ export async function computePendingDuplicates(
   }
   const phoneList = [...phones];
   for (let i = 0; i < phoneList.length; i += 200) {
-    const { data } = await admin.from("leads").select(cols)
+    let query = admin.from("leads").select(cols)
       .in("phone_k9", phoneList.slice(i, i + 200)).is("deleted_at", null);
+    if (sync.office_id) query = query.eq("office_id", sync.office_id);
+    const { data } = await query;
     for (const r of (data ?? []) as LeadRow[]) {
       if (r.phone_k9 && !byPhone.has(r.phone_k9)) byPhone.set(r.phone_k9, r);
     }

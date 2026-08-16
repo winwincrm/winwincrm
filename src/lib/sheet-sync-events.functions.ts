@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireAccessibleSheetSync, requireSheetAccess } from "@/lib/sheet-access.server";
 
 export type SheetSyncEventLead = {
   id: string;
@@ -42,13 +43,22 @@ export const listSheetSyncEvents = createServerFn({ method: "POST" })
     }).parse(i ?? {}),
   )
   .handler(async ({ data, context }) => {
+    const access = data.sync_id
+      ? (await requireAccessibleSheetSync(context, data.sync_id)).access
+      : await requireSheetAccess(context);
     let rows: unknown[] | null = null;
     try {
-      let query = context.supabase
-        .from("sheet_sync_events" as never)
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const admin = supabaseAdmin as any;
+      let query = admin
+        .from("sheet_sync_events")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(data.limit);
+      // A specific sync has already been authorized against its owning office.
+      // The general notification feed is scoped directly by event office.
+      if (!access.isAdmin && !data.sync_id) query = query.eq("office_id", access.officeId);
       if (data.since) query = query.gt("created_at", data.since);
       if (data.sync_id) query = query.eq("sync_id", data.sync_id);
       if (data.sheet_url) query = query.eq("sheet_url", data.sheet_url);
@@ -79,10 +89,12 @@ export const listSheetSyncEvents = createServerFn({ method: "POST" })
         source: string | null; platform: string | null; status: string | null;
         office_id: string | null; assigned_user_id: string | null;
       };
-      const { data: leadRows } = await admin
+      let leadQuery = admin
         .from("leads")
         .select("id, full_name, email, phone, source, platform, status, office_id, assigned_user_id")
         .in("id", leadIds);
+      if (!access.isAdmin) leadQuery = leadQuery.eq("office_id", access.officeId);
+      const { data: leadRows } = await leadQuery;
       const leads = (leadRows ?? []) as LeadRow[];
 
       const officeIds = [...new Set(leads.map((l) => l.office_id).filter(Boolean) as string[])];

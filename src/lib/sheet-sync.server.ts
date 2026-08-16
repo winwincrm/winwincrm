@@ -335,8 +335,10 @@ export async function runSheetSync(sync: SheetSync): Promise<SyncResult> {
     const metaCols = "id, email, phone_k9, source, platform, full_name, office_id, assigned_user_id, status";
     type MetaRow = DupMeta & { id: string; email: string | null; phone_k9: string | null; source: string | null; platform: string | null };
     for (let i = 0; i < emailList.length; i += 200) {
-      const { data } = await db().from("leads").select(metaCols)
+      let query = db().from("leads").select(metaCols)
         .in("email", emailList.slice(i, i + 200)).is("deleted_at", null);
+      if (sync.office_id) query = query.eq("office_id", sync.office_id);
+      const { data } = await query;
       for (const r of (data ?? []) as MetaRow[]) {
         const key = (r.email ?? "").toLowerCase();
         if (key) { existingEmails.add(key); if (!existingByEmail.has(key)) existingByEmail.set(key, r.id); }
@@ -348,8 +350,10 @@ export async function runSheetSync(sync: SheetSync): Promise<SyncResult> {
     }
     const k9List = [...k9s];
     for (let i = 0; i < k9List.length; i += 200) {
-      const { data } = await db().from("leads").select(metaCols)
+      let query = db().from("leads").select(metaCols)
         .in("phone_k9", k9List.slice(i, i + 200)).is("deleted_at", null);
+      if (sync.office_id) query = query.eq("office_id", sync.office_id);
+      const { data } = await query;
       for (const r of (data ?? []) as MetaRow[]) {
         if (r.phone_k9 && !existingByK9.has(r.phone_k9)) existingByK9.set(r.phone_k9, r.id);
         leadMeta.set(r.id, { full_name: r.full_name, office_id: r.office_id, assigned_user_id: r.assigned_user_id, status: r.status });

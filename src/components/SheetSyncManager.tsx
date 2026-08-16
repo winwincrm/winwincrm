@@ -3,7 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
   FileSpreadsheet, RefreshCw, Play, Pause, Trash2, ExternalLink, PlusCircle,
-  PencilLine, CopyX, AlertTriangle, RotateCcw, Clock, History, X, UserPlus,
+  PencilLine, CopyX, AlertTriangle, RotateCcw, Clock, History, X, UserPlus, Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -163,16 +163,6 @@ export function SheetSyncManager() {
   const canResolveDuplicates = perms.canAction("sheet_resolve_duplicates");
   const canAssign = perms.canAction("sheet_assign_lead");
 
-  useEffect(() => {
-    void supabase
-      .from("profiles")
-      .select("user_id, full_name")
-      .order("full_name")
-      .then(({ data }) => setAgents((data ?? []) as AgentOption[]));
-  }, []);
-
-
-
   const loadSyncs = useCallback(async () => {
     const rows = await fetchSyncs({ data: {} as never });
     setSyncs(rows);
@@ -183,6 +173,24 @@ export function SheetSyncManager() {
   useEffect(() => { void loadSyncs().catch((e) => { setLoading(false); toast.error(String(e)); }); }, [loadSyncs]);
 
   const active = useMemo(() => syncs.find((s) => s.id === selected) ?? null, [syncs, selected]);
+
+  useEffect(() => {
+    if (!active?.office_id) {
+      setAgents([]);
+      return;
+    }
+    let cancelled = false;
+    void supabase
+      .from("profiles")
+      .select("user_id, full_name")
+      .eq("office_id", active.office_id)
+      .eq("status", "active")
+      .order("full_name")
+      .then(({ data }) => {
+        if (!cancelled) setAgents((data ?? []) as AgentOption[]);
+      });
+    return () => { cancelled = true; };
+  }, [active?.office_id]);
 
   // History categories: new rows, edited rows, duplicates, removed rows, errors.
   const category = (k: SheetSyncEvent["kind"]) =>
@@ -326,6 +334,9 @@ export function SheetSyncManager() {
                     <Badge variant={s.enabled ? "default" : "secondary"}>{s.enabled ? "Live" : "Paused"}</Badge>
                   </div>
                   <p className="mt-0.5 text-xs text-muted-foreground truncate">{s.sheet_url}</p>
+                  <p className="mt-1 flex items-center gap-1 text-[11px] font-medium text-foreground/75">
+                    <Building2 className="h-3 w-3" /> {s.office_name ?? "Admin inbox"}
+                  </p>
                   <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                     <Clock className="h-3 w-3" /> every {s.interval_seconds}s · last run {when(s.last_run_at)}
                   </p>
@@ -347,6 +358,9 @@ export function SheetSyncManager() {
           </CardTitle>
           {active && (
             <div className="space-y-3 pt-1">
+              <Badge variant="outline" className="w-fit gap-1">
+                <Building2 className="h-3 w-3" /> {active.office_name ?? "Admin inbox"}
+              </Badge>
               <a
                 href={active.sheet_url}
                 target="_blank"

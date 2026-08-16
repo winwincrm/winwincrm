@@ -8,6 +8,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { listSheetSyncEvents, type SheetSyncEvent } from "@/lib/sheet-sync-events.functions";
 import { useDismissedSyncEvents } from "@/lib/dismissed-sync-events";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
+import { usePermissions } from "@/lib/permissions";
 
 const POLL_MS = 10_000;
 const SEEN_KEY = "sheet-sync-events-seen-at";
@@ -44,6 +46,10 @@ function openLeadsInNewTab(search?: Record<string, unknown>) {
 
 export function SheetSyncNotifications() {
   const fetchEvents = useServerFn(listSheetSyncEvents);
+  const { profile, role } = useAuth();
+  const permissions = usePermissions(role, profile?.user_id ?? null);
+  const canSeeSheets = (role === "admin" || role === "manager" || role === "superiormanager")
+    && permissions.canNav("sheet_syncs");
   const [allEvents, setEvents] = useState<SheetSyncEvent[]>([]);
   const [open, setOpen] = useState(false);
   const { dismissed, dismiss } = useDismissedSyncEvents();
@@ -56,6 +62,10 @@ export function SheetSyncNotifications() {
   const first = useRef(true);
 
   useEffect(() => {
+    if (!canSeeSheets) {
+      setEvents([]);
+      return;
+    }
     let stop = false;
     const tick = async () => {
       try {
@@ -150,7 +160,7 @@ export function SheetSyncNotifications() {
     void tick();
     const id = setInterval(tick, POLL_MS);
     return () => { stop = true; clearInterval(id); };
-  }, [fetchEvents]);
+  }, [canSeeSheets, fetchEvents]);
 
   const unread = events.filter((e) => e.created_at > seenAt).length;
 
@@ -159,6 +169,8 @@ export function SheetSyncNotifications() {
     setSeenAt(now);
     localStorage.setItem(SEEN_KEY, now);
   };
+
+  if (!canSeeSheets) return null;
 
   return (
     <Popover open={open} onOpenChange={(v) => { setOpen(v); if (v) markSeen(); }}>

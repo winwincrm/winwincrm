@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { PendingDuplicate } from "@/lib/sheet-duplicates.server";
+import { requireAccessibleSheetSync, validateSheetTarget } from "@/lib/sheet-access.server";
 
 export type { PendingDuplicate, DuplicateMatch } from "@/lib/sheet-duplicates.server";
 
@@ -12,10 +13,7 @@ export const listSheetDuplicates = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => z.object({ sync_id: uuid }).parse(i))
   .handler(async ({ data, context }): Promise<{ pending: PendingDuplicate[]; error?: string }> => {
-    const { data: sync, error } = await context.supabase
-      .from("sheet_syncs" as never).select("*").eq("id", data.sync_id).maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!sync) throw new Error("Sync not found");
+    const { sync } = await requireAccessibleSheetSync(context, data.sync_id, "*");
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { computePendingDuplicates } = await import("@/lib/sheet-duplicates.server");
@@ -41,10 +39,19 @@ export const resolveSheetDuplicates = createServerFn({ method: "POST" })
     }).parse(i),
   )
   .handler(async ({ data, context }) => {
-    const { data: sync, error } = await context.supabase
-      .from("sheet_syncs" as never).select("*").eq("id", data.sync_id).maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!sync) throw new Error("Sync not found");
+    const { access, sync } = await requireAccessibleSheetSync<{
+      id: string;
+      office_id: string | null;
+      assigned_user_id: string | null;
+    }>(context, data.sync_id, "*");
+    const hasTargetOverride = data.office_id !== undefined || data.assigned_user_id !== undefined;
+    const target = hasTargetOverride
+      ? await validateSheetTarget(
+          access,
+          data.office_id !== undefined ? data.office_id : sync.office_id,
+          data.assigned_user_id !== undefined ? data.assigned_user_id : sync.assigned_user_id,
+        )
+      : null;
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { resolvePendingDuplicates } = await import("@/lib/sheet-duplicates.server");
@@ -54,8 +61,7 @@ export const resolveSheetDuplicates = createServerFn({ method: "POST" })
       {
         keys: data.keys,
         action: data.action,
-        ...(data.office_id !== undefined ? { officeId: data.office_id } : {}),
-        ...(data.assigned_user_id !== undefined ? { assignedUserId: data.assigned_user_id } : {}),
+        ...(target ? { officeId: target.officeId, assignedUserId: target.assignedUserId } : {}),
       },
     );
   });

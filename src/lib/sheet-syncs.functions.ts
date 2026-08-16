@@ -1,6 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import {
+  requireAccessibleSheetSync,
+  requireSheetAccess,
+  validateSheetTarget,
+} from "@/lib/sheet-access.server";
 
 const uuid = z.string().uuid();
 
@@ -22,6 +27,7 @@ export type SheetSyncRow = {
   last_error: string | null;
   consecutive_failures: number;
   created_at: string;
+  office_name: string | null;
 };
 
 const saveSchema = z.object({
@@ -41,23 +47,46 @@ const saveSchema = z.object({
 export const listSheetSyncs = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { data, error } = await context.supabase
-      .from("sheet_syncs" as never)
+    const access = await requireSheetAccess(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const admin = supabaseAdmin as any;
+    let query = admin
+      .from("sheet_syncs")
       .select("*")
       .order("created_at", { ascending: false });
+    if (!access.isAdmin) query = query.eq("office_id", access.officeId);
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
-    return (data ?? []) as unknown as SheetSyncRow[];
+
+    const rows = (data ?? []) as Omit<SheetSyncRow, "office_name">[];
+    const officeIds = [...new Set(rows.map((row) => row.office_id).filter(Boolean) as string[])];
+    const { data: offices, error: officesError } = officeIds.length
+      ? await admin.from("offices").select("id, name").in("id", officeIds)
+      : { data: [], error: null };
+    if (officesError) throw new Error(officesError.message);
+    const officeNames = new Map<string, string>(
+      ((offices ?? []) as Array<{ id: string; name: string }>).map((office) => [office.id, office.name]),
+    );
+    return rows.map((row) => ({
+      ...row,
+      office_name: row.office_id ? (officeNames.get(row.office_id) ?? "Unknown office") : null,
+    }));
   });
 
 export const saveSheetSync = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => saveSchema.parse(i))
   .handler(async ({ data, context }) => {
+    const access = await requireSheetAccess(context);
+    if (data.id) await requireAccessibleSheetSync(context, data.id);
+    const target = await validateSheetTarget(access, data.office_id, data.assigned_user_id);
+    if (!target.officeId) throw new Error("Select an office for this Google Sheets link");
     const row = {
       name: data.name || "Google Sheet",
       sheet_url: data.sheet_url,
-      office_id: data.office_id,
-      assigned_user_id: data.assigned_user_id,
+      office_id: target.officeId,
+      assigned_user_id: target.assignedUserId,
       source: data.source,
       list_name: data.list_name,
       mapping: data.mapping,
@@ -67,14 +96,23 @@ export const saveSheetSync = createServerFn({ method: "POST" })
       next_run_at: new Date().toISOString(),
       last_error: null,
       consecutive_failures: 0,
-      created_by: context.userId,
       updated_at: new Date().toISOString(),
     };
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const admin = supabaseAdmin as any;
     const query = data.id
-      ? context.supabase.from("sheet_syncs" as never).update(row as never).eq("id", data.id).select("*").single()
-      : context.supabase.from("sheet_syncs" as never).insert(row as never).select("*").single();
+      ? admin.from("sheet_syncs").update(row).eq("id", data.id).select("*").single()
+      : admin.from("sheet_syncs").insert({ ...row, created_by: context.userId }).select("*").single();
     const { data: saved, error } = await query;
     if (error) throw new Error(error.message);
+    if (data.id) {
+      const { error: eventOfficeError } = await admin
+        .from("sheet_sync_events")
+        .update({ office_id: target.officeId })
+        .eq("sync_id", data.id);
+      if (eventOfficeError) throw new Error(eventOfficeError.message);
+    }
     return saved as unknown as SheetSyncRow;
   });
 
@@ -82,8 +120,12 @@ export const setSheetSyncEnabled = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => z.object({ id: uuid, enabled: z.boolean() }).parse(i))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
-      .from("sheet_syncs" as never)
+    await requireAccessibleSheetSync(context, data.id);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const admin = supabaseAdmin as any;
+    const { error } = await admin
+      .from("sheet_syncs")
       .update({ enabled: data.enabled, next_run_at: new Date().toISOString(), consecutive_failures: 0 } as never)
       .eq("id", data.id);
     if (error) throw new Error(error.message);
@@ -101,10 +143,7 @@ export const deleteSheetSync = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => z.object({ id: uuid, delete_leads: z.boolean().default(false) }).parse(i))
   .handler(async ({ data, context }) => {
-    const { data: visible, error: visErr } = await context.supabase
-      .from("sheet_syncs" as never).select("id").eq("id", data.id).maybeSingle();
-    if (visErr) throw new Error(visErr.message);
-    if (!visible) throw new Error("Sync not found");
+    await requireAccessibleSheetSync(context, data.id);
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -138,11 +177,7 @@ export const sheetSyncStats = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => z.object({ id: uuid }).parse(i))
   .handler(async ({ data, context }) => {
-    const { data: visible, error: visErr } = await context.supabase
-      .from("sheet_syncs" as never).select("*").eq("id", data.id).maybeSingle();
-    if (visErr) throw new Error(visErr.message);
-    if (!visible) throw new Error("Sync not found");
-    const sync = visible as unknown as SheetSyncRow;
+    const { access, sync } = await requireAccessibleSheetSync<SheetSyncRow>(context, data.id, "*");
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -163,8 +198,10 @@ export const sheetSyncStats = createServerFn({ method: "POST" })
     let leads: LeadRow[] = [];
     for (let i = 0; i < leadIds.length; i += 500) {
       const chunk = leadIds.slice(i, i + 500);
-      const { data: got } = await admin
+      let leadQuery = admin
         .from("leads").select("id, source, platform, status, office_id, assigned_user_id").in("id", chunk);
+      if (!access.isAdmin) leadQuery = leadQuery.eq("office_id", access.officeId);
+      const { data: got } = await leadQuery;
       leads = leads.concat((got ?? []) as LeadRow[]);
     }
 
@@ -228,11 +265,7 @@ export const runSheetSyncNow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => z.object({ id: uuid }).parse(i))
   .handler(async ({ data, context }) => {
-    // The caller must be able to see the sync under RLS before we run it as admin.
-    const { data: visible, error } = await context.supabase
-      .from("sheet_syncs" as never).select("id").eq("id", data.id).maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!visible) throw new Error("Sync not found");
+    await requireAccessibleSheetSync(context, data.id);
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
