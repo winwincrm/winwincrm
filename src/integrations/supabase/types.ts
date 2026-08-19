@@ -761,6 +761,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "profiles_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+          {
             foreignKeyName: "profiles_office_id_fkey"
             columns: ["office_id"]
             isOneToOne: false
@@ -1030,7 +1037,17 @@ export type Database = {
     }
     Functions: {
       can_access_lead: { Args: { _lead_id: string }; Returns: boolean }
+      can_manage_hierarchy_user: {
+        Args: { target_user_id: string }
+        Returns: boolean
+      }
+      can_view_hierarchy_user: {
+        Args: { target_user_id: string }
+        Returns: boolean
+      }
+      current_user_is_active: { Args: never; Returns: boolean }
       current_user_office_id: { Args: never; Returns: string }
+      current_user_role_text: { Args: never; Returns: string }
       current_user_team_id: { Args: never; Returns: string }
       dashboard_stats: {
         Args: { p_from?: string; p_office?: string; p_to?: string }
@@ -1052,6 +1069,7 @@ export type Database = {
         Args: { _user_id: string }
         Returns: boolean
       }
+      user_role_text: { Args: { target_user_id: string }; Returns: string }
       leads_filter_options: { Args: never; Returns: Json }
       leads_group_counts: {
         Args: {

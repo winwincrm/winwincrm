@@ -30,7 +30,7 @@ export async function handleLeadReassignment(input: ReassignLeadInput, context: 
 
   const roles = new Set<string>((roleRows ?? []).map((row) => String(row.role)));
   const isAdmin = roles.has("admin");
-  const isManager = hasAnyRole(roles, ["manager", "superiormanager"]);
+  const isManager = hasAnyRole(roles, ["manager", "superiormanager", "supervisor"]);
   const isAlexSpecialCase = roles.has("agent") && context.userId === ALEX_ID;
 
   if (!isAdmin && !isManager && !isAlexSpecialCase) {
@@ -79,7 +79,11 @@ export async function handleLeadReassignment(input: ReassignLeadInput, context: 
     } else if (!targetProfile.office_id || targetProfile.office_id !== lead.office_id) {
       throw new Error("Agent does not belong to this office");
     }
-    if (isAlexSpecialCase && input.assignedUserId !== ALEX_ID && input.assignedUserId !== BYRAZA_ID) {
+    if (
+      isAlexSpecialCase &&
+      input.assignedUserId !== ALEX_ID &&
+      input.assignedUserId !== BYRAZA_ID
+    ) {
       throw new Error("Not allowed");
     }
   }

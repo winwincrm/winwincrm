@@ -1,9 +1,20 @@
-import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  ReactNode,
+} from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import i18n from "@/i18n";
+import { highestRole } from "@/lib/hierarchy";
+import type { AppRole } from "@/lib/hierarchy";
 
-export type AppRole = "admin" | "manager" | "superiormanager" | "agent";
+export type { AppRole } from "@/lib/hierarchy";
 
 export interface Profile {
   user_id: string;
@@ -30,26 +41,20 @@ interface AuthState {
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
 async function loadProfileData(uid: string) {
-  const [{ data: prof, error: profileError }, { data: roles, error: rolesError }] = await Promise.all([
-    supabase.from("profiles").select("*").eq("user_id", uid).maybeSingle(),
-    supabase.from("user_roles").select("role").eq("user_id", uid),
-  ]);
+  const [{ data: prof, error: profileError }, { data: roles, error: rolesError }] =
+    await Promise.all([
+      supabase.from("profiles").select("*").eq("user_id", uid).maybeSingle(),
+      supabase.from("user_roles").select("role").eq("user_id", uid),
+    ]);
   if (profileError) throw profileError;
   if (rolesError) throw rolesError;
   const nextProfile = (prof as Profile) ?? null;
   if (nextProfile?.language_preference) {
     void i18n.changeLanguage(nextProfile.language_preference);
   }
-  const list = (roles ?? []).map((r: { role: string }) => String(r.role));
-  const nextRole: AppRole | null = list.includes("admin")
-    ? "admin"
-    : list.includes("superiormanager") || list.includes("supervisor")
-      ? "superiormanager"
-      : list.includes("manager")
-        ? "manager"
-        : list.includes("agent")
-          ? "agent"
-          : null;
+  const nextRole: AppRole | null = highestRole(
+    (roles ?? []).map((r: { role: string }) => String(r.role)),
+  );
 
   return { profile: nextProfile, role: nextRole };
 }
@@ -117,11 +122,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       resolveInitialLoad();
     };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, s) => {
       void applySession(s);
     });
 
-    void supabase.auth.getSession()
+    void supabase.auth
+      .getSession()
       .then(({ data }) => applySession(data.session))
       .catch(() => applySession(null));
 
@@ -161,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refresh,
       signOut,
     }),
-    [session, profile, role, loading, loadError, refresh, signOut]
+    [session, profile, role, loading, loadError, refresh, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

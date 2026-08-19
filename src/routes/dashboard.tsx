@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { LEAD_STATUSES, type LeadStatus } from "@/lib/lead-constants";
 import { STATUSES_BY_GROUP, STATUS_GROUP_ORDER, type LeadStatusGroup } from "@/lib/lead-status";
 import { format } from "date-fns";
+import { isOfficeManagerRole } from "@/lib/hierarchy";
 
 export const Route = createFileRoute("/dashboard")({ component: DashboardPage });
 
@@ -19,11 +20,22 @@ function DashboardPage() {
   );
 }
 
-interface ProfileRow { user_id: string; full_name: string | null; office_id: string | null }
-interface OfficeRow { id: string; name: string }
+interface ProfileRow {
+  user_id: string;
+  full_name: string | null;
+  office_id: string | null;
+}
+interface OfficeRow {
+  id: string;
+  name: string;
+}
 interface ActivityRow {
-  id: string; activity_type: string; old_value: string | null;
-  new_value: string | null; created_at: string; lead_id: string;
+  id: string;
+  activity_type: string;
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
+  lead_id: string;
 }
 
 interface DashboardStatsResponse {
@@ -46,6 +58,7 @@ function DashboardContent() {
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
   const [agentsCount, setAgentsCount] = useState(0);
+  const [agentUserIds, setAgentUserIds] = useState<string[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [officeFilter, setOfficeFilter] = useState<string>("all"); // admin only
   const [dateFilter, setDateFilter] = useState<string>(""); // "" = all time, else YYYY-MM-DD
@@ -54,9 +67,12 @@ function DashboardContent() {
     if (!role) return;
     void load();
     async function load() {
-      const officeArg = role === "admin"
-        ? (officeFilter !== "all" ? officeFilter : null)
-        : (profile?.office_id ?? null);
+      const officeArg =
+        role === "admin"
+          ? officeFilter !== "all"
+            ? officeFilter
+            : null
+          : (profile?.office_id ?? null);
 
       setLoadError(null);
       const [statsRes, agentsRes, officesRes, profilesRes, activityRes] = await Promise.all([
@@ -65,23 +81,56 @@ function DashboardContent() {
           p_from: dateFilter || undefined,
           p_to: dateFilter || undefined,
         }),
-        supabase.from("user_roles").select("*", { count: "exact", head: true }).eq("role", "agent"),
+        supabase.from("user_roles").select("user_id").eq("role", "agent"),
         supabase.from("offices").select("id, name"),
         supabase.from("profiles").select("user_id, full_name, office_id"),
-        supabase.from("lead_activity").select("*").order("created_at", { ascending: false }).limit(50),
+        supabase
+          .from("lead_activity")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(50),
       ]);
-      const firstError = statsRes.error ?? agentsRes.error ?? officesRes.error ?? profilesRes.error ?? activityRes.error;
+      const firstError =
+        statsRes.error ??
+        agentsRes.error ??
+        officesRes.error ??
+        profilesRes.error ??
+        activityRes.error;
       if (firstError) {
         setLoadError(firstError.message);
-        setStatsData({ total: 0, today: 0, unassigned: 0, followups: 0, by_status: {}, by_agent: [], by_office: [], office_by_status: [], agent_status: [] });
+        setStatsData({
+          total: 0,
+          today: 0,
+          unassigned: 0,
+          followups: 0,
+          by_status: {},
+          by_agent: [],
+          by_office: [],
+          office_by_status: [],
+          agent_status: [],
+        });
         return;
       }
 
-      setStatsData((statsRes.data as unknown as DashboardStatsResponse) ?? { total: 0, today: 0, unassigned: 0, followups: 0, by_status: {}, by_agent: [], by_office: [], office_by_status: [], agent_status: [] });
+      setStatsData(
+        (statsRes.data as unknown as DashboardStatsResponse) ?? {
+          total: 0,
+          today: 0,
+          unassigned: 0,
+          followups: 0,
+          by_status: {},
+          by_agent: [],
+          by_office: [],
+          office_by_status: [],
+          agent_status: [],
+        },
+      );
       setOffices((officesRes.data ?? []) as OfficeRow[]);
       setProfiles((profilesRes.data ?? []) as ProfileRow[]);
       setActivity((activityRes.data ?? []) as ActivityRow[]);
-      setAgentsCount(agentsRes.count ?? 0);
+      const nextAgentIds = (agentsRes.data ?? []).map((row) => row.user_id);
+      setAgentUserIds(nextAgentIds);
+      setAgentsCount(nextAgentIds.length);
     }
   }, [role, profile?.office_id, user?.id, officeFilter, dateFilter]);
 
@@ -90,20 +139,29 @@ function DashboardContent() {
 
     const byStatus: Record<string, number> = {};
     LEAD_STATUSES.forEach((s) => (byStatus[s] = 0));
-    Object.entries(statsData.by_status ?? {}).forEach(([k, v]) => { byStatus[k] = v as number; });
+    Object.entries(statsData.by_status ?? {}).forEach(([k, v]) => {
+      byStatus[k] = v as number;
+    });
 
     const officeMap = new Map(offices.map((o) => [o.id, o.name]));
     const profileMap = new Map(profiles.map((p) => [p.user_id, p.full_name || "—"]));
+    const agentIdSet = new Set(agentUserIds);
     const officeAgentsCount = new Map<string, number>();
     profiles.forEach((p) => {
-      if (p.office_id) officeAgentsCount.set(p.office_id, (officeAgentsCount.get(p.office_id) ?? 0) + 1);
+      if (p.office_id && agentIdSet.has(p.user_id))
+        officeAgentsCount.set(p.office_id, (officeAgentsCount.get(p.office_id) ?? 0) + 1);
     });
 
     // Per-office breakdown from RPC
-    const officeBase = new Map<string, { count: number; cold: number; unassigned: number; groups: Record<LeadStatusGroup, number> }>();
+    const officeBase = new Map<
+      string,
+      { count: number; cold: number; unassigned: number; groups: Record<LeadStatusGroup, number> }
+    >();
     (statsData.by_office ?? []).forEach((o) => {
       officeBase.set(o.office_id, {
-        count: o.count, cold: o.cold, unassigned: o.unassigned,
+        count: o.count,
+        cold: o.cold,
+        unassigned: o.unassigned,
         groups: { new: 0, in_progress: 0, callback: 0, appointment: 0, converted: 0, bad: 0 },
       });
     });
@@ -111,29 +169,50 @@ function DashboardContent() {
       const cur = officeBase.get(row.office_id);
       if (!cur) return;
       for (const g of STATUS_GROUP_ORDER) {
-        if (STATUSES_BY_GROUP[g].includes(row.status as LeadStatus)) { cur.groups[g] += row.count; break; }
+        if (STATUSES_BY_GROUP[g].includes(row.status as LeadStatus)) {
+          cur.groups[g] += row.count;
+          break;
+        }
       }
     });
-    const byOffice = Array.from(officeBase.entries()).map(([id, v]) => ({
-      id, name: officeMap.get(id) ?? "—", agents: officeAgentsCount.get(id) ?? 0,
-      normal: v.count - v.cold, ...v,
-    })).sort((a, b) => b.count - a.count);
+    const byOffice = Array.from(officeBase.entries())
+      .map(([id, v]) => ({
+        id,
+        name: officeMap.get(id) ?? "—",
+        agents: officeAgentsCount.get(id) ?? 0,
+        normal: v.count - v.cold,
+        ...v,
+      }))
+      .sort((a, b) => b.count - a.count);
 
     // Per-agent leaderboard from RPC
-    const byAgent = (statsData.by_agent ?? []).map((a) => ({
-      name: profileMap.get(a.user_id) ?? "—", count: a.count,
-    }));
+    const byAgent = (statsData.by_agent ?? [])
+      .filter((agent) => agentIdSet.has(agent.user_id))
+      .map((agent) => ({
+        name: profileMap.get(agent.user_id) ?? "—",
+        count: agent.count,
+      }));
 
     // Agent × status matrix from RPC
     const scopedAgents = profiles.filter((p) => {
-      if (role === "manager" && profile?.office_id) return p.office_id === profile.office_id;
+      if (!agentIdSet.has(p.user_id)) return false;
+      if (isOfficeManagerRole(role) && profile?.office_id) return p.office_id === profile.office_id;
       if (role === "admin" && officeFilter !== "all") return p.office_id === officeFilter;
       return true;
     });
-    const matrixMap = new Map<string, { name: string; total: number; byStatus: Record<string, number> }>();
-    scopedAgents.forEach((p) => matrixMap.set(p.user_id, { name: p.full_name || "—", total: 0, byStatus: {} }));
+    const matrixMap = new Map<
+      string,
+      { name: string; total: number; byStatus: Record<string, number> }
+    >();
+    scopedAgents.forEach((p) =>
+      matrixMap.set(p.user_id, { name: p.full_name || "—", total: 0, byStatus: {} }),
+    );
     (statsData.agent_status ?? []).forEach((row) => {
-      const cur = matrixMap.get(row.user_id) ?? { name: profileMap.get(row.user_id) ?? "—", total: 0, byStatus: {} };
+      const cur = matrixMap.get(row.user_id) ?? {
+        name: profileMap.get(row.user_id) ?? "—",
+        total: 0,
+        byStatus: {},
+      };
       cur.total += row.count;
       cur.byStatus[row.status] = (cur.byStatus[row.status] ?? 0) + row.count;
       matrixMap.set(row.user_id, cur);
@@ -145,19 +224,31 @@ function DashboardContent() {
     // Recent activity (server already scopes via RLS; no further office filter to avoid extra fetch)
     const recentFiltered = activity;
 
-
     return {
       totalLeads: statsData.total,
       leadsToday: statsData.today,
       totalOffices: offices.length,
       totalAgents: agentsCount,
       officeAgents: role === "admin" && officeFilter !== "all" ? scopedAgents.length : 0,
-      byStatus, byOffice, byAgent, agentStatusMatrix,
+      byStatus,
+      byOffice,
+      byAgent,
+      agentStatusMatrix,
       unassigned: statsData.unassigned,
       followUps: statsData.followups,
       recent: recentFiltered.slice(0, 15),
     };
-  }, [statsData, offices, profiles, activity, agentsCount, role, profile?.office_id, officeFilter]);
+  }, [
+    statsData,
+    offices,
+    profiles,
+    activity,
+    agentsCount,
+    agentUserIds,
+    role,
+    profile?.office_id,
+    officeFilter,
+  ]);
 
   if (!stats) {
     return <div className="text-sm text-muted-foreground">{t("common.loading")}</div>;
@@ -171,7 +262,10 @@ function DashboardContent() {
       tiles.push(
         { label: t("dashboard.total_leads"), value: stats.totalLeads },
         { label: t("dashboard.leads_today"), value: stats.leadsToday },
-        { label: t("dashboard.agents_in_office", { defaultValue: "Agents in office" }), value: stats.officeAgents },
+        {
+          label: t("dashboard.agents_in_office", { defaultValue: "Agents in office" }),
+          value: stats.officeAgents,
+        },
         { label: t("dashboard.unassigned_leads"), value: stats.unassigned },
       );
     } else {
@@ -182,7 +276,7 @@ function DashboardContent() {
         { label: t("dashboard.total_agents"), value: stats.totalAgents },
       );
     }
-  } else if (role === "manager") {
+  } else if (isOfficeManagerRole(role)) {
     tiles.push(
       { label: t("dashboard.total_leads"), value: stats.totalLeads },
       { label: t("dashboard.leads_today"), value: stats.leadsToday },
@@ -201,10 +295,11 @@ function DashboardContent() {
   const maxStatus = Math.max(1, ...Object.values(stats.byStatus));
   // Right panel: admin-overview shows offices; admin-scoped + office shows agents; agent has none
   const showOfficeTable = role === "admin" && !isAdminScoped;
-  const showAgentTable = role === "manager" || isAdminScoped;
+  const showAgentTable = isOfficeManagerRole(role) || isAdminScoped;
   const rightList = showOfficeTable ? stats.byOffice : stats.byAgent;
   const maxRight = Math.max(1, ...rightList.map((r) => r.count));
-  const showAgentMatrix = (role === "manager" || isAdminScoped) && stats.agentStatusMatrix.length > 0;
+  const showAgentMatrix =
+    (isOfficeManagerRole(role) || isAdminScoped) && stats.agentStatusMatrix.length > 0;
 
   return (
     <div className="space-y-5 font-mono">
@@ -226,7 +321,9 @@ function DashboardContent() {
                 </span>
               )}
               {dateFilter && (
-                <span className="ml-2 opacity-80">· {format(new Date(`${dateFilter}T00:00:00`), "EEE dd MMM")}</span>
+                <span className="ml-2 opacity-80">
+                  · {format(new Date(`${dateFilter}T00:00:00`), "EEE dd MMM")}
+                </span>
               )}
             </h1>
           </div>
@@ -238,9 +335,13 @@ function DashboardContent() {
                 className="bg-background text-foreground text-[10px] uppercase tracking-widest px-2 py-1 border border-background/40 font-mono"
                 aria-label={t("dashboard.filter_office", { defaultValue: "Filter by office" })}
               >
-                <option value="all">{t("dashboard.all_offices", { defaultValue: "All offices" })}</option>
+                <option value="all">
+                  {t("dashboard.all_offices", { defaultValue: "All offices" })}
+                </option>
                 {offices.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}</option>
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
                 ))}
               </select>
             )}
@@ -262,7 +363,8 @@ function DashboardContent() {
               <button
                 type="button"
                 onClick={() => {
-                  const y = new Date(); y.setDate(y.getDate() - 1);
+                  const y = new Date();
+                  y.setDate(y.getDate() - 1);
                   setDateFilter(format(y, "yyyy-MM-dd"));
                 }}
                 className={`text-[10px] uppercase tracking-widest px-2 py-1 border font-mono ${dateFilter === format(new Date(Date.now() - 86400000), "yyyy-MM-dd") ? "bg-background text-foreground border-background" : "bg-transparent text-background border-background/40 hover:bg-background/10"}`}
@@ -314,7 +416,9 @@ function DashboardContent() {
                     {"█".repeat(blocks)}
                     <span className="text-muted-foreground/40">{"░".repeat(20 - blocks)}</span>
                   </div>
-                  <span className="tabular-nums text-right font-bold">{String(v).padStart(3, "0")}</span>
+                  <span className="tabular-nums text-right font-bold">
+                    {String(v).padStart(3, "0")}
+                  </span>
                 </div>
               );
             })}
@@ -357,7 +461,9 @@ function DashboardContent() {
                         onClick={() => setOfficeFilter(row.id)}
                         title={t("dashboard.filter_office", { defaultValue: "Filter by office" })}
                       >
-                        <td className="py-1 text-muted-foreground tabular-nums">{String(i + 1).padStart(2, "0")}</td>
+                        <td className="py-1 text-muted-foreground tabular-nums">
+                          {String(i + 1).padStart(2, "0")}
+                        </td>
                         <td className="py-1 font-medium truncate">{row.name}</td>
                         <td className="py-1 text-right tabular-nums">{row.agents}</td>
                         {STATUS_GROUP_ORDER.map((g) => (
@@ -365,8 +471,12 @@ function DashboardContent() {
                             {row.groups[g] || <span className="opacity-30">·</span>}
                           </td>
                         ))}
-                        <td className="py-1 text-right tabular-nums text-muted-foreground">{row.unassigned || <span className="opacity-30">·</span>}</td>
-                        <td className="py-1 text-right tabular-nums text-muted-foreground">{row.cold}</td>
+                        <td className="py-1 text-right tabular-nums text-muted-foreground">
+                          {row.unassigned || <span className="opacity-30">·</span>}
+                        </td>
+                        <td className="py-1 text-right tabular-nums text-muted-foreground">
+                          {row.cold}
+                        </td>
                         <td className="py-1 text-right tabular-nums font-bold">{row.count}</td>
                       </tr>
                     ))}
@@ -385,7 +495,9 @@ function DashboardContent() {
                   <tbody>
                     {stats.byAgent.slice(0, 10).map((row, i) => (
                       <tr key={row.name} className="border-b border-dotted border-foreground/20">
-                        <td className="py-1 text-muted-foreground tabular-nums">{String(i + 1).padStart(2, "0")}</td>
+                        <td className="py-1 text-muted-foreground tabular-nums">
+                          {String(i + 1).padStart(2, "0")}
+                        </td>
                         <td className="py-1 font-medium truncate">{row.name}</td>
                         <td className="py-1 text-right tabular-nums font-bold">{row.count}</td>
                         <td className="py-1 pl-3 text-primary tracking-tighter">
@@ -401,7 +513,6 @@ function DashboardContent() {
         )}
       </div>
 
-
       {/* Per-agent × status matrix */}
       {showAgentMatrix && (
         <div className="border-2 border-foreground bg-card overflow-x-auto">
@@ -413,7 +524,9 @@ function DashboardContent() {
               <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-dashed border-foreground/40">
                 <th className="text-left py-1 px-3 font-normal">Agent</th>
                 {LEAD_STATUSES.map((s) => (
-                  <th key={s} className="text-right py-1 px-2 font-normal">{t(`status.${s}`, { defaultValue: s })}</th>
+                  <th key={s} className="text-right py-1 px-2 font-normal">
+                    {t(`status.${s}`, { defaultValue: s })}
+                  </th>
                 ))}
                 <th className="text-right py-1 px-3 font-normal">Total</th>
               </tr>
@@ -469,9 +582,14 @@ function DashboardContent() {
                       <span className="text-emerald-600">›</span> {a.activity_type}
                     </td>
                     <td className="py-1 text-muted-foreground">
-                      {a.old_value && a.new_value
-                        ? <><span>{a.old_value}</span> <span className="text-primary">→</span> <span className="text-foreground">{a.new_value}</span></>
-                        : <span className="opacity-40">—</span>}
+                      {a.old_value && a.new_value ? (
+                        <>
+                          <span>{a.old_value}</span> <span className="text-primary">→</span>{" "}
+                          <span className="text-foreground">{a.new_value}</span>
+                        </>
+                      ) : (
+                        <span className="opacity-40">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}

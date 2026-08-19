@@ -49,6 +49,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
+import {
+  canManageRole,
+  normalizeRole,
+  requiredParentRole,
+  ROLE_RANK,
+  type AppRole,
+} from "@/lib/hierarchy";
 
 export const Route = createFileRoute("/users")({ component: UsersPage });
 
@@ -69,14 +76,38 @@ type UserRow = {
   manager_id: string | null;
 };
 
-const rankOf: Record<string, number> = { admin: 4, superiormanager: 3, manager: 2, agent: 1 };
 const PAGE_SIZE = 25;
+
+function isManagedByCaller(
+  callerRole: AppRole | null,
+  callerId: string | undefined,
+  target: UserRow,
+  targetRole: AppRole | undefined,
+  users: UserRow[],
+  roles: Map<string, AppRole>,
+): boolean {
+  if (!callerRole || !callerId || !targetRole) return false;
+  if (callerRole === "admin") return true;
+  if (!canManageRole(callerRole, targetRole)) return false;
+  if (callerRole === "manager") return targetRole === "agent" && target.manager_id === callerId;
+  if (callerRole === "superiormanager") {
+    if (targetRole === "manager") return target.manager_id === callerId;
+    const parent = users.find((candidate) => candidate.user_id === target.manager_id);
+    return (
+      targetRole === "agent" &&
+      !!parent &&
+      parent.manager_id === callerId &&
+      roles.get(parent.user_id) === "manager"
+    );
+  }
+  return false;
+}
 
 function UsersContent() {
   const { t } = useTranslation();
   const { role, profile } = useAuth();
   const [users, setUsers] = useState<UserRow[]>([]);
-  const [roles, setRoles] = useState<Map<string, string>>(new Map());
+  const [roles, setRoles] = useState<Map<string, AppRole>>(new Map());
   const [offices, setOffices] = useState<{ id: string; name: string }[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
@@ -106,15 +137,31 @@ function UsersContent() {
       .from("profiles")
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .select("user_id, full_name, email, office_id, status, manager_id") as any);
-    setUsers((profs ?? []) as unknown as UserRow[]);
+    const allUsers = (profs ?? []) as unknown as UserRow[];
 
     const { data: rs } = await supabase.from("user_roles").select("user_id, role");
-    const m = new Map<string, string>();
+    const m = new Map<string, AppRole>();
     (rs ?? []).forEach((r) => {
+      const next = normalizeRole(String(r.role));
+      if (!next) return;
       const cur = m.get(r.user_id);
-      if (!cur || (rankOf[r.role] ?? 0) > (rankOf[cur] ?? 0)) m.set(r.user_id, r.role);
+      if (!cur || ROLE_RANK[next] > ROLE_RANK[cur]) m.set(r.user_id, next);
     });
     setRoles(m);
+    const visibleUsers =
+      role === "admin"
+        ? allUsers
+        : allUsers.filter((candidate) =>
+            isManagedByCaller(
+              role,
+              profile?.user_id,
+              candidate,
+              m.get(candidate.user_id),
+              allUsers,
+              m,
+            ),
+          );
+    setUsers(visibleUsers);
     if (role === "admin") {
       const { data: o } = await supabase.from("offices").select("id, name");
       setOffices(o ?? []);
@@ -144,18 +191,21 @@ function UsersContent() {
       toast.error("Password ≥ 8 chars");
       return;
     }
-    const myRank = rankOf[role ?? ""] ?? 0;
-    let targetRole = form.role as "admin" | "manager" | "superiormanager" | "agent";
-    if (role !== "admin") {
-      if (role === "manager") targetRole = "agent";
-      else if (role === "superiormanager") {
-        if (targetRole !== "manager" && targetRole !== "agent") targetRole = "agent";
-      }
-      if ((rankOf[targetRole] ?? 0) >= myRank) targetRole = "agent";
+    const targetRole = normalizeRole(form.role) ?? "agent";
+    const targetOffice = role === "admin" ? form.office_id || null : (profile?.office_id ?? null);
+    let targetManager = form.manager_id || null;
+    if (role === "manager") targetManager = profile?.user_id ?? null;
+    if (role === "superiormanager" && targetRole === "manager")
+      targetManager = profile?.user_id ?? null;
+    if (targetRole === "admin" || targetRole === "superiormanager") targetManager = null;
+    if (targetRole !== "admin" && !targetOffice) {
+      toast.error("Select an active office.");
+      return;
     }
-    const targetOffice = role === "admin" ? (form.office_id || null) : (profile?.office_id ?? null);
-    const targetManager = form.manager_id
-      || (role !== "admin" ? (profile?.user_id ?? null) : null);
+    if (requiredParentRole(targetRole) && !targetManager) {
+      toast.error(targetRole === "manager" ? "Select a superior manager." : "Select a manager.");
+      return;
+    }
     setSubmitting(true);
     try {
       const headers = await withAuth();
@@ -190,26 +240,43 @@ function UsersContent() {
   };
 
   const updateManager = async (userId: string, newManagerId: string | null) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase.from("profiles") as any)
-      .update({ manager_id: newManagerId })
-      .eq("user_id", userId);
-    if (error) { toast.error(error.message); return; }
-    setUsers((prev) => prev.map((p) => p.user_id === userId ? { ...p, manager_id: newManagerId } : p));
-    toast.success("Hierarchy updated");
+    try {
+      const headers = await withAuth();
+      const result = await updateUserFn({
+        data: { user_id: userId, manager_id: newManagerId },
+        headers,
+      });
+      if (!result.ok) throw new Error(result.message);
+      setUsers((prev) =>
+        prev.map((p) => (p.user_id === userId ? { ...p, manager_id: newManagerId } : p)),
+      );
+      toast.success("Hierarchy updated");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update hierarchy");
+    }
   };
 
   const performToggleStatus = async (u: UserRow) => {
-    const { error } = await supabase
-      .from("profiles")
-      .update({ status: u.status === "active" ? "inactive" : "active" })
-      .eq("user_id", u.user_id);
-    if (error) { toast.error(error.message); return; }
-    void load();
+    try {
+      const headers = await withAuth();
+      const result = await updateUserFn({
+        data: { user_id: u.user_id, status: u.status === "active" ? "inactive" : "active" },
+        headers,
+      });
+      if (!result.ok) throw new Error(result.message);
+      void load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update status");
+    }
   };
 
   const impersonate = async (u: UserRow) => {
-    if (!confirm(`Sign in as ${u.full_name || u.email}? You will be signed out of your current session.`)) return;
+    if (
+      !confirm(
+        `Sign in as ${u.full_name || u.email}? You will be signed out of your current session.`,
+      )
+    )
+      return;
     try {
       const headers = await withAuth();
       const result = await impersonateUserFn({ data: { user_id: u.user_id }, headers });
@@ -221,7 +288,6 @@ function UsersContent() {
       });
       if (verifyErr) throw verifyErr;
       window.location.href = "/";
-
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to impersonate user");
     }
@@ -256,8 +322,24 @@ function UsersContent() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const selectedCreationRole = normalizeRole(form.role) ?? "agent";
+  const selectedCreationOffice = role === "admin" ? form.office_id : (profile?.office_id ?? "");
+  const creationParentRole = requiredParentRole(selectedCreationRole);
+  const fixedCreationParent =
+    role === "manager" || (role === "superiormanager" && selectedCreationRole === "manager");
+  const creationParents = users.filter((candidate) => {
+    if (!creationParentRole || roles.get(candidate.user_id) !== creationParentRole) return false;
+    if (candidate.status !== "active" || candidate.office_id !== selectedCreationOffice)
+      return false;
+    if (role === "superiormanager" && selectedCreationRole === "agent") {
+      return candidate.manager_id === profile?.user_id;
+    }
+    return true;
+  });
 
-  useEffect(() => { setPage(1); }, [query, roleFilter, statusFilter]);
+  useEffect(() => {
+    setPage(1);
+  }, [query, roleFilter, statusFilter]);
 
   return (
     <div className="space-y-4">
@@ -276,25 +358,45 @@ function UsersContent() {
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label>{t("users.full_name")}</Label>
-                <Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
+                <Input
+                  value={form.full_name}
+                  onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>{t("auth.email")}</Label>
-                <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                />
               </div>
               <div className="space-y-1.5">
-                <Label>{t("users.temp_password")}</Label>
-                <Input type="text" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-                <p className="text-xs text-muted-foreground">{t("users.must_reset")}</p>
+                <Label>Password</Label>
+                <Input
+                  type="text"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  This password is active immediately; no first-login reset is required.
+                </p>
               </div>
 
               <div className="space-y-1.5">
                 <Label>{t("users.role")}</Label>
-                <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                <Select
+                  value={form.role}
+                  onValueChange={(v) => setForm({ ...form, role: v, manager_id: "" })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     {role === "admin" && <SelectItem value="admin">{t("roles.admin")}</SelectItem>}
-                    {role === "admin" && <SelectItem value="superiormanager">{t("roles.superiormanager")}</SelectItem>}
+                    {role === "admin" && (
+                      <SelectItem value="superiormanager">{t("roles.superiormanager")}</SelectItem>
+                    )}
                     {(role === "admin" || role === "superiormanager") && (
                       <SelectItem value="manager">{t("roles.manager")}</SelectItem>
                     )}
@@ -311,27 +413,73 @@ function UsersContent() {
               {role === "admin" && form.role !== "admin" && (
                 <div className="space-y-1.5">
                   <Label>{t("common.office")}</Label>
-                  <Select value={form.office_id} onValueChange={(v) => setForm({ ...form, office_id: v })}>
-                    <SelectTrigger><SelectValue placeholder={t("common.none")} /></SelectTrigger>
+                  <Select
+                    value={form.office_id}
+                    onValueChange={(v) => setForm({ ...form, office_id: v, manager_id: "" })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={t("common.none")} />
+                    </SelectTrigger>
                     <SelectContent>
                       {offices.map((o) => (
-                        <SelectItem key={o.id} value={o.id}>{o.name || o.id.slice(0, 8)}</SelectItem>
+                        <SelectItem key={o.id} value={o.id}>
+                          {o.name || o.id.slice(0, 8)}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
               )}
 
-              {role !== "admin" && (
+              {creationParentRole && fixedCreationParent && (
                 <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground space-y-0.5">
-                  <div>Office: <span className="font-medium">{profile?.office_id ? "Your office" : "—"}</span></div>
-                  <div>Reports to: <span className="font-medium">You</span></div>
+                  <div>
+                    Office: <span className="font-medium">Your office</span>
+                  </div>
+                  <div>
+                    Reports to: <span className="font-medium">You</span>
+                  </div>
+                </div>
+              )}
+
+              {creationParentRole && !fixedCreationParent && (
+                <div className="space-y-1.5">
+                  <Label>
+                    Reports to {creationParentRole === "manager" ? "manager" : "superior manager"}
+                  </Label>
+                  <Select
+                    value={form.manager_id}
+                    onValueChange={(v) => setForm({ ...form, manager_id: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={`Select ${creationParentRole === "manager" ? "manager" : "superior manager"}`}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {creationParents.map((candidate) => (
+                        <SelectItem key={candidate.user_id} value={candidate.user_id}>
+                          {candidate.full_name || candidate.email || candidate.user_id.slice(0, 8)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedCreationOffice && creationParents.length === 0 && (
+                    <p className="text-xs text-destructive">
+                      No active {creationParentRole === "manager" ? "manager" : "superior manager"}{" "}
+                      is available in this office. Create that parent first.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>{t("common.cancel")}</Button>
-              <Button onClick={create} disabled={submitting}>{t("users.create_user")}</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button onClick={create} disabled={submitting}>
+                {t("users.create_user")}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -349,7 +497,9 @@ function UsersContent() {
           />
         </div>
         <Select value={roleFilter} onValueChange={setRoleFilter}>
-          <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All roles</SelectItem>
             <SelectItem value="admin">{t("roles.admin")}</SelectItem>
@@ -359,7 +509,9 @@ function UsersContent() {
           </SelectContent>
         </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All statuses</SelectItem>
             <SelectItem value="active">{t("common.active")}</SelectItem>
@@ -393,23 +545,30 @@ function UsersContent() {
             )}
             {paged.map((u) => {
               const userRole = roles.get(u.user_id);
-              const userRank = rankOf[userRole ?? ""] ?? 0;
-              const canEditHierarchy = role === "admin" && userRole && userRole !== "admin";
+              const requiredRole = userRole ? requiredParentRole(userRole) : null;
+              const canEditHierarchy = role === "admin" && requiredRole !== null;
               const eligible = users.filter((p) => {
                 const pr = roles.get(p.user_id);
-                if (!pr) return false;
-                return (rankOf[pr] ?? 0) > userRank && p.user_id !== u.user_id;
+                return (
+                  !!requiredRole &&
+                  pr === requiredRole &&
+                  p.status === "active" &&
+                  p.office_id === u.office_id &&
+                  p.user_id !== u.user_id
+                );
               });
               const currentParent = users.find((p) => p.user_id === u.manager_id);
-              const myRank = rankOf[role ?? ""] ?? 0;
-              const canManage = role === "admin" || userRank < myRank;
               const isSelf = u.user_id === profile?.user_id;
+              const canManage =
+                !isSelf && isManagedByCaller(role, profile?.user_id, u, userRole, users, roles);
 
               return (
                 <TableRow key={u.user_id}>
                   <TableCell className="font-medium">{u.full_name ?? "—"}</TableCell>
                   <TableCell className="text-sm">{u.email ?? "—"}</TableCell>
-                  <TableCell className="text-sm">{userRole ? t(`roles.${userRole}`) : "—"}</TableCell>
+                  <TableCell className="text-sm">
+                    {userRole ? t(`roles.${userRole}`) : "—"}
+                  </TableCell>
                   <TableCell className="text-sm">
                     {canEditHierarchy ? (
                       <Select
@@ -420,32 +579,39 @@ function UsersContent() {
                           <SelectValue placeholder="Unassigned" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__none__">Unassigned</SelectItem>
                           {eligible.map((p) => (
                             <SelectItem key={p.user_id} value={p.user_id}>
-                              {(p.full_name || p.email || p.user_id.slice(0, 8))}
-                              {roles.get(p.user_id) ? ` · ${t(`roles.${roles.get(p.user_id)}`)}` : ""}
+                              {p.full_name || p.email || p.user_id.slice(0, 8)}
+                              {roles.get(p.user_id)
+                                ? ` · ${t(`roles.${roles.get(p.user_id)}`)}`
+                                : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                    ) : currentParent ? (
+                      currentParent.full_name || currentParent.email || "—"
                     ) : (
-                      currentParent
-                        ? (currentParent.full_name || currentParent.email || "—")
-                        : <span className="text-muted-foreground">—</span>
+                      <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
                   <TableCell>
-                    <span className={
-                      "text-xs px-2 py-0.5 rounded-full " +
-                      (u.status === "active" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")
-                    }>
+                    <span
+                      className={
+                        "text-xs px-2 py-0.5 rounded-full " +
+                        (u.status === "active"
+                          ? "bg-primary/10 text-primary"
+                          : "bg-muted text-muted-foreground")
+                      }
+                    >
                       {t(u.status === "active" ? "common.active" : "common.inactive")}
                     </span>
                   </TableCell>
                   <TableCell className="text-right space-x-1 whitespace-nowrap">
                     {role === "admin" && !isSelf && (
-                      <Button size="sm" variant="outline" onClick={() => impersonate(u)}>Login as</Button>
+                      <Button size="sm" variant="outline" onClick={() => impersonate(u)}>
+                        Login as
+                      </Button>
                     )}
                     {canManage && (
                       <Button size="sm" variant="ghost" title="Edit" onClick={() => setEditUser(u)}>
@@ -453,7 +619,12 @@ function UsersContent() {
                       </Button>
                     )}
                     {canManage && (
-                      <Button size="sm" variant="ghost" title="Reset password" onClick={() => setResetTarget(u)}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="Reset password"
+                        onClick={() => setResetTarget(u)}
+                      >
                         <KeyRound className="h-4 w-4" />
                       </Button>
                     )}
@@ -461,7 +632,11 @@ function UsersContent() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => u.status === "active" ? setDeactivateTarget(u) : void performToggleStatus(u)}
+                        onClick={() =>
+                          u.status === "active"
+                            ? setDeactivateTarget(u)
+                            : void performToggleStatus(u)
+                        }
                       >
                         {t(u.status === "active" ? "common.deactivate" : "common.activate")}
                       </Button>
@@ -492,10 +667,20 @@ function UsersContent() {
             Page {currentPage} of {totalPages}
           </div>
           <div className="space-x-2">
-            <Button size="sm" variant="outline" disabled={currentPage <= 1} onClick={() => setPage((p) => p - 1)}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => p - 1)}
+            >
               Previous
             </Button>
-            <Button size="sm" variant="outline" disabled={currentPage >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => p + 1)}
+            >
               Next
             </Button>
           </div>
@@ -510,7 +695,10 @@ function UsersContent() {
         allUsers={users}
         roles={roles}
         onClose={() => setEditUser(null)}
-        onSaved={() => { setEditUser(null); void load(); }}
+        onSaved={() => {
+          setEditUser(null);
+          void load();
+        }}
         withAuth={withAuth}
       />
 
@@ -527,8 +715,8 @@ function UsersContent() {
           <AlertDialogHeader>
             <AlertDialogTitle>Deactivate user?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deactivateTarget?.full_name || deactivateTarget?.email} will no longer be able to sign in
-              until reactivated.
+              {deactivateTarget?.full_name || deactivateTarget?.email} will no longer be able to
+              sign in until reactivated.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -551,8 +739,8 @@ function UsersContent() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete user permanently?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete <b>{deleteTarget?.full_name || deleteTarget?.email}</b> and
-              their account access. This action cannot be undone.
+              This will permanently delete <b>{deleteTarget?.full_name || deleteTarget?.email}</b>{" "}
+              and their account access. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -574,13 +762,20 @@ function UsersContent() {
 }
 
 function EditUserDialog({
-  user, role, offices, allUsers, roles, onClose, onSaved, withAuth,
+  user,
+  role,
+  offices,
+  allUsers,
+  roles,
+  onClose,
+  onSaved,
+  withAuth,
 }: {
   user: UserRow | null;
   role: string | null | undefined;
   offices: { id: string; name: string }[];
   allUsers: UserRow[];
-  roles: Map<string, string>;
+  roles: Map<string, AppRole>;
   onClose: () => void;
   onSaved: () => void;
   withAuth: () => Promise<{ Authorization: string }>;
@@ -604,11 +799,17 @@ function EditUserDialog({
 
   if (!user) return null;
 
-  const currentRank = rankOf[roles.get(user.user_id) ?? ""] ?? 0;
+  const selectedRole = normalizeRole(userRole) ?? "agent";
+  const parentRole = requiredParentRole(selectedRole);
   const eligible = allUsers.filter((p) => {
     const pr = roles.get(p.user_id);
-    if (!pr) return false;
-    return (rankOf[pr] ?? 0) > currentRank && p.user_id !== user.user_id;
+    return (
+      !!parentRole &&
+      pr === parentRole &&
+      p.status === "active" &&
+      p.office_id === officeId &&
+      p.user_id !== user.user_id
+    );
   });
 
   const save = async () => {
@@ -620,9 +821,10 @@ function EditUserDialog({
           user_id: user.user_id,
           full_name: full_name || null,
           email: email || null,
-          role: role === "admin" ? (userRole as "admin" | "manager" | "superiormanager" | "agent") : undefined,
-          office_id: role === "admin" ? (officeId || null) : undefined,
-          manager_id: role === "admin" ? (managerId || null) : undefined,
+          role: role === "admin" ? selectedRole : undefined,
+          office_id:
+            role === "admin" ? (selectedRole === "admin" ? null : officeId || null) : undefined,
+          manager_id: role === "admin" ? (parentRole ? managerId || null : null) : undefined,
         },
         headers,
       });
@@ -655,8 +857,16 @@ function EditUserDialog({
             <>
               <div className="space-y-1.5">
                 <Label>{t("users.role")}</Label>
-                <Select value={userRole} onValueChange={setUserRole}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                <Select
+                  value={userRole}
+                  onValueChange={(value) => {
+                    setUserRole(value);
+                    setManagerId("");
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="admin">{t("roles.admin")}</SelectItem>
                     <SelectItem value="superiormanager">{t("roles.superiormanager")}</SelectItem>
@@ -665,39 +875,59 @@ function EditUserDialog({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5">
-                <Label>{t("common.office")}</Label>
-                <Select value={officeId || "__none__"} onValueChange={(v) => setOfficeId(v === "__none__" ? "" : v)}>
-                  <SelectTrigger><SelectValue placeholder={t("common.none")} /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">{t("common.none")}</SelectItem>
-                    {offices.map((o) => (
-                      <SelectItem key={o.id} value={o.id}>{o.name || o.id.slice(0, 8)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Reports to</Label>
-                <Select value={managerId || "__none__"} onValueChange={(v) => setManagerId(v === "__none__" ? "" : v)}>
-                  <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Unassigned</SelectItem>
-                    {eligible.map((p) => (
-                      <SelectItem key={p.user_id} value={p.user_id}>
-                        {(p.full_name || p.email || p.user_id.slice(0, 8))}
-                        {roles.get(p.user_id) ? ` · ${t(`roles.${roles.get(p.user_id)}`)}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {selectedRole !== "admin" && (
+                <div className="space-y-1.5">
+                  <Label>{t("common.office")}</Label>
+                  <Select
+                    value={officeId}
+                    onValueChange={(value) => {
+                      setOfficeId(value);
+                      setManagerId("");
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select office" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {offices.map((o) => (
+                        <SelectItem key={o.id} value={o.id}>
+                          {o.name || o.id.slice(0, 8)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {parentRole && (
+                <div className="space-y-1.5">
+                  <Label>
+                    Reports to {parentRole === "manager" ? "manager" : "superior manager"}
+                  </Label>
+                  <Select value={managerId} onValueChange={setManagerId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select parent" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {eligible.map((p) => (
+                        <SelectItem key={p.user_id} value={p.user_id}>
+                          {p.full_name || p.email || p.user_id.slice(0, 8)}
+                          {roles.get(p.user_id) ? ` · ${t(`roles.${roles.get(p.user_id)}`)}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </>
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>{t("common.cancel")}</Button>
-          <Button onClick={save} disabled={saving}>{t("common.save")}</Button>
+          <Button variant="outline" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {t("common.save")}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -705,7 +935,9 @@ function EditUserDialog({
 }
 
 function ResetPasswordDialog({
-  user, onClose, withAuth,
+  user,
+  onClose,
+  withAuth,
 }: {
   user: UserRow | null;
   onClose: () => void;
@@ -715,12 +947,17 @@ function ResetPasswordDialog({
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { setPassword(""); }, [user]);
+  useEffect(() => {
+    setPassword("");
+  }, [user]);
 
   if (!user) return null;
 
   const submit = async () => {
-    if (password.length < 8) { toast.error("Password ≥ 8 chars"); return; }
+    if (password.length < 8) {
+      toast.error("Password ≥ 8 chars");
+      return;
+    }
     setSaving(true);
     try {
       const headers = await withAuth();
@@ -746,7 +983,8 @@ function ResetPasswordDialog({
         </DialogHeader>
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Set a new password for <b>{user.full_name || user.email}</b>. Only an administrator can replace it in the CRM.
+            Set a new password for <b>{user.full_name || user.email}</b>. Only authorized management
+            can replace it in the CRM.
           </p>
           <div className="space-y-1.5">
             <Label>New password</Label>
@@ -754,8 +992,12 @@ function ResetPasswordDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>{t("common.cancel")}</Button>
-          <Button onClick={submit} disabled={saving}>Reset password</Button>
+          <Button variant="outline" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={submit} disabled={saving}>
+            Reset password
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

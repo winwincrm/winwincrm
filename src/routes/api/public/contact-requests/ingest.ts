@@ -3,26 +3,13 @@
 // or as a `?token=<secret>` query param (so simple form integrations can use
 // the URL directly). The secret lives in CONTACT_REQUESTS_WEBHOOK_SECRET.
 //
-// Default target office: KS (crlm.purpleskies.pro). Callers MAY override by
-// sending `office: "ks" | "kla" | "bla"` or a raw `office_id` UUID.
+// Office ownership is resolved from the live offices table. Callers may send
+// an active office UUID or its name/slug; stale hard-coded UUIDs are forbidden.
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const MAX_BODY_BYTES = 32 * 1024;
-
-const OFFICE_KS = "4cb70020-cabf-4ab6-bc06-58f55e7e0220";
-const OFFICE_DB = "e960656f-7111-4258-86f7-f20569f4a0a1";
-const OFFICE_BLACK = "a2d7b652-902d-4b5d-9665-54d83b528847";
-
-const OFFICE_ALIAS: Record<string, string> = {
-  ks: OFFICE_KS,
-  crlm: OFFICE_KS,
-  kla: OFFICE_DB,
-  db: OFFICE_DB,
-  bla: OFFICE_BLACK,
-  black: OFFICE_BLACK,
-};
 
 const Schema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -44,11 +31,14 @@ function corsHeaders() {
   };
 }
 
+function officeKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
 export const Route = createFileRoute("/api/public/contact-requests/ingest")({
   server: {
     handlers: {
-      OPTIONS: async () =>
-        new Response(null, { status: 204, headers: corsHeaders() }),
+      OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders() }),
 
       POST: async ({ request }) => {
         const secret = process.env.CONTACT_REQUESTS_WEBHOOK_SECRET;
@@ -62,17 +52,12 @@ export const Route = createFileRoute("/api/public/contact-requests/ingest")({
         // Token via header OR query string.
         const url = new URL(request.url);
         const auth = request.headers.get("authorization") ?? "";
-        const headerToken = auth.toLowerCase().startsWith("bearer ")
-          ? auth.slice(7).trim()
-          : "";
+        const headerToken = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
         const queryToken = url.searchParams.get("token") ?? "";
         const provided = headerToken || queryToken;
 
         if (!provided || provided !== secret) {
-          return Response.json(
-            { error: "unauthorized" },
-            { status: 401, headers: corsHeaders() },
-          );
+          return Response.json({ error: "unauthorized" }, { status: 401, headers: corsHeaders() });
         }
 
         const lengthHeader = Number(request.headers.get("content-length") ?? "0");
@@ -94,10 +79,7 @@ export const Route = createFileRoute("/api/public/contact-requests/ingest")({
           }
           raw = text ? JSON.parse(text) : {};
         } catch {
-          return Response.json(
-            { error: "invalid_json" },
-            { status: 400, headers: corsHeaders() },
-          );
+          return Response.json({ error: "invalid_json" }, { status: 400, headers: corsHeaders() });
         }
 
         const parsed = Schema.safeParse(raw);
@@ -109,13 +91,37 @@ export const Route = createFileRoute("/api/public/contact-requests/ingest")({
         }
         const data = parsed.data;
 
-        // Resolve office: explicit office_id → alias → default KS.
-        let officeId = OFFICE_KS;
-        if (data.office_id) officeId = data.office_id;
-        else if (data.office) {
-          const key = data.office.toLowerCase();
-          if (OFFICE_ALIAS[key]) officeId = OFFICE_ALIAS[key];
+        // Resolve only against active, live offices. If there is exactly one
+        // active office it is a safe default; otherwise the caller must choose.
+        const { data: activeOffices, error: officesError } = await supabaseAdmin
+          .from("offices")
+          .select("id, name")
+          .eq("status", "active");
+        if (officesError) {
+          console.error("[contact-requests/ingest] office_lookup_failed", officesError.message);
+          return Response.json(
+            { error: "office_lookup_failed" },
+            { status: 500, headers: corsHeaders() },
+          );
         }
+        const configuredDefault = process.env.CONTACT_REQUESTS_DEFAULT_OFFICE_ID ?? "";
+        const requested = data.office_id ?? data.office ?? configuredDefault;
+        const requestedKey = requested ? officeKey(requested) : "";
+        const office = requestedKey
+          ? (activeOffices ?? []).find(
+              (candidate) =>
+                candidate.id === requested || officeKey(candidate.name) === requestedKey,
+            )
+          : activeOffices?.length === 1
+            ? activeOffices[0]
+            : undefined;
+        if (!office) {
+          return Response.json(
+            { error: requested ? "office_not_found_or_inactive" : "office_required" },
+            { status: 400, headers: corsHeaders() },
+          );
+        }
+        const officeId = office.id;
 
         const ip =
           request.headers.get("cf-connecting-ip") ??
@@ -146,10 +152,7 @@ export const Route = createFileRoute("/api/public/contact-requests/ingest")({
 
         if (error || !inserted) {
           console.error("[contact-requests/ingest] insert_failed", error?.message);
-          return Response.json(
-            { error: "insert_failed" },
-            { status: 500, headers: corsHeaders() },
-          );
+          return Response.json({ error: "insert_failed" }, { status: 500, headers: corsHeaders() });
         }
 
         return Response.json(

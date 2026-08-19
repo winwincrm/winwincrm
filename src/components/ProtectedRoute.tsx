@@ -4,16 +4,9 @@ import { useEffect } from "react";
 import { useAuth, type AppRole } from "@/lib/auth-context";
 import { AppShell } from "./AppShell";
 import { isUserAllowedOnHost } from "@/lib/subdomain-tenancy";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-export function ProtectedRoute({
-  children,
-  roles,
-}: {
-  children: ReactNode;
-  roles?: AppRole[];
-}) {
+export function ProtectedRoute({ children, roles }: { children: ReactNode; roles?: AppRole[] }) {
   const { session, role, loading, profile, signOut, refresh, loadError } = useAuth();
   const navigate = useNavigate();
 
@@ -27,8 +20,15 @@ export function ProtectedRoute({
     // otherwise we'd sign the user out during the brief window between
     // session-ready and profile-loaded.
     if (!profile || !role) return;
+    if (profile.status !== "active") {
+      void signOut().finally(() => {
+        toast.error("This account is inactive. Contact an administrator.");
+        navigate({ to: "/login" });
+      });
+      return;
+    }
     if (!isUserAllowedOnHost(role, profile.office_id ?? null)) {
-      void supabase.auth.signOut().then(() => signOut()).finally(() => {
+      void signOut().finally(() => {
         toast.error("This account is not allowed on this domain.");
         navigate({ to: "/login" });
       });
@@ -65,20 +65,22 @@ export function ProtectedRoute({
             <button
               type="button"
               className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-              onClick={() => { void refresh(); }}
+              onClick={() => {
+                void refresh();
+              }}
             >
               Retry
             </button>
-          <button
-            type="button"
+            <button
+              type="button"
               className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium text-foreground hover:bg-accent"
-            onClick={async () => {
-              await signOut();
-              navigate({ to: "/login" });
-            }}
-          >
-            Sign in again
-          </button>
+              onClick={async () => {
+                await signOut();
+                navigate({ to: "/login" });
+              }}
+            >
+              Sign in again
+            </button>
           </div>
         </div>
       </div>
