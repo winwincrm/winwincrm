@@ -448,18 +448,29 @@ export type Database = {
           created_at: string
           id: string
           name: string
+          office_id: string | null
         }
         Insert: {
           created_at?: string
           id?: string
           name: string
+          office_id?: string | null
         }
         Update: {
           created_at?: string
           id?: string
           name?: string
+          office_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "lead_sources_office_id_fkey"
+            columns: ["office_id"]
+            isOneToOne: false
+            referencedRelation: "offices"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       lead_transfers: {
         Row: {

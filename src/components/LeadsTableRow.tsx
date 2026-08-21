@@ -17,6 +17,7 @@ import { LEAD_STATUSES, type LeadStatus } from "@/lib/lead-constants";
 import { effectiveKind, KIND_BADGE_CLASS, KIND_SHORT } from "@/lib/lead-kind";
 import { buildCallHref, type Softphone } from "@/lib/softphone";
 import { cn } from "@/lib/utils";
+import { amountDisplayValue } from "@/lib/amount-value";
 
 export interface LeadRowData {
   id: string;
@@ -159,7 +160,7 @@ function LeadsTableRowImpl(p: LeadsTableRowProps) {
         )}
         {show("amount") && (
           <TableCell className="py-1 text-sm text-right tabular-nums">
-            {p.fmtAmount(l.amount ?? (l.payload as Record<string, unknown> | null)?.amount)}
+            {p.fmtAmount(amountDisplayValue(l.amount, l.payload))}
           </TableCell>
         )}
         {show("platform") && <TableCell className="py-1 text-sm">{l.platform ?? "—"}</TableCell>}

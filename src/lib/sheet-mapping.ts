@@ -3,6 +3,7 @@
 // both produce byte-identical lead rows.
 import Papa from "papaparse";
 import { emailKey, normalizeEmail } from "@/lib/email-normalize";
+import { parseAmountNumber } from "@/lib/amount-value";
 
 export const SHEET_TARGET_FIELDS = [
   "first_name", "last_name", "full_name", "email", "phone", "amount", "timeframe",
@@ -12,7 +13,14 @@ export const SHEET_TARGET_FIELDS = [
 
 export type SheetTargetKey = (typeof SHEET_TARGET_FIELDS)[number];
 export const SHEET_NONE = "__none__";
+export const SHEET_COUNTRY_OVERRIDE_KEY = "__country_override";
 export type SheetMapping = Record<string, SheetTargetKey | typeof SHEET_NONE>;
+
+export function getSheetCountryOverride(mapping: unknown): string {
+  if (!mapping || typeof mapping !== "object" || Array.isArray(mapping)) return "";
+  const value = (mapping as Record<string, unknown>)[SHEET_COUNTRY_OVERRIDE_KEY];
+  return typeof value === "string" ? value.trim() : "";
+}
 
 export function autoMapHeader(header: string): SheetTargetKey | null {
   const h = header.trim().toLowerCase().replace(/[\s-]+/g, "_");
@@ -137,6 +145,8 @@ export function buildSheetRows(rows: Record<string, string>[], mapping: SheetMap
     const payload: Record<string, unknown> = {};
     if (fields.country) payload.country = fields.country;
     if (fields.funnel) payload.funnel = fields.funnel;
+    if (fields.amount) payload.amount_raw = fields.amount;
+    if (fields.date) payload.date_raw = fields.date;
     if (Object.keys(extras).length) payload.extra = extras;
 
     const fullName = fields.full_name?.trim()
@@ -151,8 +161,8 @@ export function buildSheetRows(rows: Record<string, string>[], mapping: SheetMap
     if (fields.timeframe) insert.timeframe = fields.timeframe;
     if (fields.agent) insert.origin_agent_name = fields.agent;
     if (fields.amount) {
-      const n = Number(fields.amount.replace(/[^\d.-]/g, ""));
-      if (!isNaN(n) && n !== 0) insert.amount = n;
+      const n = parseAmountNumber(fields.amount);
+      if (n !== undefined) insert.amount = n;
     }
     if (fields.source) { insert.source = fields.source; insert.platform = fields.source; }
     if (fields.platform) insert.platform = fields.platform;

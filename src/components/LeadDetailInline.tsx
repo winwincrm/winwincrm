@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { formatActivity, type ActivityRow } from "@/lib/lead-activity-format";
 import { buildCallHref, useSoftphone } from "@/lib/softphone";
 import { useReassignPrefs } from "@/lib/reassign-prefs";
+import { amountDisplayValue, parseAmountNumber } from "@/lib/amount-value";
 
 
 interface AgentLite { user_id: string; full_name: string | null; office_id: string | null }
@@ -293,8 +294,18 @@ export function LeadDetailInline({
             hint={!canEditPhone ? t("leads.phone_admin_only", { defaultValue: "Only admin can edit phone" }) : undefined}
             onSave={(v) => update({ phone: v })}
           />
-          <InlineField label={t("common.amount")} value={lead.amount == null ? "" : String(lead.amount)} disabled={!canEdit}
-            onSave={(v) => update({ amount: v ? Number(v) : null })} />
+          <InlineField
+            label={t("common.amount")}
+            value={String(amountDisplayValue(lead.amount, lead.payload) ?? "")}
+            disabled={!canEdit}
+            onSave={(v) => {
+              const raw = (v ?? "").trim();
+              const payload = { ...(lead.payload ?? {}) };
+              if (raw) payload.amount_raw = v;
+              else delete payload.amount_raw;
+              return update({ amount: raw ? (parseAmountNumber(raw) ?? null) : null, payload });
+            }}
+          />
           <InlineField label={t("common.percentage")} value={lead.percentage == null ? "" : String(lead.percentage)} disabled={!canEdit}
             onSave={(v) => update({ percentage: v ? Number(v) : null })} />
           <InlineField label={t("common.duration")} value={lead.timeframe} disabled={!canEdit}

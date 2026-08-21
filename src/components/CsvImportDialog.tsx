@@ -21,6 +21,8 @@ import { Upload, Trash2, Download, Link2, Building2 } from "lucide-react";
 import { parseLeadBlocks, type ParsedLead } from "@/lib/parseLeadText";
 import { fetchSheetCsv } from "@/lib/sheets.functions";
 import { saveSheetSync, setSheetSyncEnabled, runSheetSyncNow } from "@/lib/sheet-syncs.functions";
+import { SHEET_COUNTRY_OVERRIDE_KEY } from "@/lib/sheet-mapping";
+import { parseAmountNumber } from "@/lib/amount-value";
 
 
 const TARGET_FIELDS = [
@@ -82,6 +84,8 @@ function autoMap(header: string): TargetKey | null {
 
 interface Office { id: string; name: string }
 interface Agent { user_id: string; full_name: string | null; email: string | null }
+interface RegisteredSource { name: string; office_id: string | null }
+interface UsedSource { source: string | null; office_id: string | null }
 
 const PASTE_PLACEHOLDER = `Name: Herr Horst-Rüdiger Backhaus
 Kontakt: horst-ruediger-backhaus@t-online.de | +4915128053311
@@ -188,7 +192,9 @@ export function CsvImportDialog({
 
 
   const [sourceOverride, setSourceOverride] = useState<string>(NONE);
-  const [sourceOptions, setSourceOptions] = useState<string[]>([]);
+  const [countryOverride, setCountryOverride] = useState("");
+  const [registeredSources, setRegisteredSources] = useState<RegisteredSource[]>([]);
+  const [usedSources, setUsedSources] = useState<UsedSource[]>([]);
 
 
   // Duplicate-review state
@@ -206,6 +212,36 @@ export function CsvImportDialog({
   const selectedOfficeName = officeId === INBOX
     ? null
     : officeOptions.find((office) => office.id === officeId)?.name ?? null;
+  const sourceOptions = useMemo(() => {
+    const targetOfficeId = officeId === INBOX || officeId === NONE ? null : officeId;
+    const registeredByName = new Map(registeredSources.map((source) => [source.name, source]));
+    const available = new Set<string>();
+
+    for (const source of registeredSources) {
+      if (source.office_id === null || source.office_id === targetOfficeId) {
+        const name = source.name.trim();
+        if (name) available.add(name);
+      }
+    }
+
+    for (const row of usedSources) {
+      const name = (row.source ?? "").trim();
+      if (!name || row.office_id !== targetOfficeId) continue;
+      const registration = registeredByName.get(name);
+      if (!registration || registration.office_id === null || registration.office_id === targetOfficeId) {
+        available.add(name);
+      }
+    }
+
+    return Array.from(available).sort((a, b) => a.localeCompare(b));
+  }, [officeId, registeredSources, usedSources]);
+  const mappingWithCountryOverride = (): Record<string, string> => {
+    const next = { ...mapping } as Record<string, string>;
+    const country = countryOverride.trim();
+    if (country) next[SHEET_COUNTRY_OVERRIDE_KEY] = country;
+    else delete next[SHEET_COUNTRY_OVERRIDE_KEY];
+    return next;
+  };
 
   // A manager's office is an authorization boundary, not a user-selectable
   // import option. The server enforces the same rule independently.
@@ -224,31 +260,23 @@ export function CsvImportDialog({
     setPasteText(""); setParsedLeads([]);
     setSheetUrl(""); setSheetTitle(""); setSheetLoading(false);
     setBatchTag(""); setImporting(false); setAssigneeId(MANAGER);
-    setReview(null); setSourceOverride(NONE);
+    setReview(null); setSourceOverride(NONE); setCountryOverride("");
     pendingLiveStart.current = false;
   };
 
 
-  // Load available sources (registered + already used on leads) so the user can pick one.
+  // Load registrations and historical tags, then filter them by target office.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     (async () => {
       const [{ data: regRows }, { data: usedRows }] = await Promise.all([
-        supabase.from("lead_sources" as never).select("name").order("name", { ascending: true }),
-        supabase.from("leads").select("source").not("source", "is", null).is("deleted_at", null).limit(20000),
+        supabase.from("lead_sources").select("name, office_id").order("name", { ascending: true }),
+        supabase.from("leads").select("source, office_id").not("source", "is", null).is("deleted_at", null).limit(20000),
       ]);
       if (cancelled) return;
-      const set = new Set<string>();
-      for (const r of (regRows ?? []) as Array<{ name: string }>) {
-        const n = (r.name ?? "").trim();
-        if (n) set.add(n);
-      }
-      for (const r of (usedRows ?? []) as Array<{ source: string | null }>) {
-        const n = (r.source ?? "").trim();
-        if (n) set.add(n);
-      }
-      setSourceOptions(Array.from(set).sort((a, b) => a.localeCompare(b)));
+      setRegisteredSources((regRows ?? []) as RegisteredSource[]);
+      setUsedSources((usedRows ?? []) as UsedSource[]);
     })();
     return () => { cancelled = true; };
   }, [open]);
@@ -524,7 +552,7 @@ export function CsvImportDialog({
             : (assigneeId === MANAGER ? unassignedFallbackId : assigneeId),
           source: overrideActive ? sourceOverride : "google_sheet",
           list_name: listName().slice(0, 120),
-          mapping: mapping as Record<string, string>,
+          mapping: mappingWithCountryOverride(),
           interval_seconds: Math.max(5, Number(liveEvery) || 60),
           update_existing: true,
           enabled: true,
@@ -616,8 +644,12 @@ export function CsvImportDialog({
       const next = [...prev];
       const lead = { ...next[i] };
       if (field === "amount") {
-        const n = Number(value.replace(/[^\d.\-]/g, ""));
-        (lead as ParsedLead).amount = Number.isFinite(n) ? n : undefined;
+        const payload = { ...(lead.payload ?? {}) };
+        const raw = value.trim();
+        if (raw) payload.amount_raw = value;
+        else delete payload.amount_raw;
+        lead.payload = payload;
+        lead.amount = parseAmountNumber(value);
       } else {
         (lead as Record<string, unknown>)[field] = value || undefined;
       }
@@ -684,6 +716,12 @@ export function CsvImportDialog({
       const payload: Record<string, unknown> = {};
       if (fields.country) payload.country = fields.country;
       if (fields.funnel) payload.funnel = fields.funnel;
+      // Amount is deliberately free-form. Keep the exact cell for display and
+      // editing, while the optional numeric copy continues to power reports.
+      if (fields.amount) payload.amount_raw = fields.amount;
+      // A custom/non-standard date must never disappear merely because it
+      // cannot be written to the database timestamp column.
+      if (fields.date) payload.date_raw = fields.date;
       if (Object.keys(extras).length) payload.extra = extras;
 
       const fullName = fields.full_name?.trim()
@@ -712,8 +750,8 @@ export function CsvImportDialog({
       if (fields.timeframe) insert.timeframe = fields.timeframe;
       if (fields.agent) insert.origin_agent_name = fields.agent;
       if (fields.amount) {
-        const n = Number(fields.amount.replace(/[^\d.\-]/g, ""));
-        if (!isNaN(n) && n !== 0) insert.amount = n;
+        const n = parseAmountNumber(fields.amount);
+        if (n !== undefined) insert.amount = n;
       }
       if (fields.source) {
         insert.source = fields.source;
@@ -820,19 +858,27 @@ export function CsvImportDialog({
     if (tab === "sheet" && sheetTitle) return sheetTitle;
     return `${tab === "paste" ? "Paste" : "Import"} ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
   };
-  const finalizeInsertRow = (p: PendingRow, sourceTag: string): Record<string, unknown> => ({
-    office_id: officeId === INBOX ? null : officeId,
-    // store a cleaned address so future duplicate checks stay reliable
-    assigned_user_id: officeId === INBOX
-      ? null
-      : (p.insert.assigned_user_id ?? (assigneeId === MANAGER ? unassignedFallbackId : assigneeId)),
-    ...p.insert,
-    // store a cleaned address so future duplicate checks stay reliable
-    ...(p.insert.email ? { email: normalizeEmail(p.insert.email as string) ?? p.insert.email } : {}),
-    platform: (p.insert.platform as string | undefined) || listName(),
-    source: p.insert.source ?? sourceTag,
-    status: "new" as const,
-  });
+  const finalizeInsertRow = (p: PendingRow, sourceTag: string): Record<string, unknown> => {
+    const country = countryOverride.trim();
+    const currentPayload = p.insert.payload;
+    const payload = currentPayload && typeof currentPayload === "object" && !Array.isArray(currentPayload)
+      ? currentPayload as Record<string, unknown>
+      : {};
+    return {
+      office_id: officeId === INBOX ? null : officeId,
+      assigned_user_id: officeId === INBOX
+        ? null
+        : (p.insert.assigned_user_id ?? (assigneeId === MANAGER ? unassignedFallbackId : assigneeId)),
+      ...p.insert,
+      // Manual country wins over the CSV, pasted text or Google Sheet value.
+      ...(country ? { payload: { ...payload, country } } : {}),
+      // Store a cleaned address so future duplicate checks stay reliable.
+      ...(p.insert.email ? { email: normalizeEmail(p.insert.email as string) ?? p.insert.email } : {}),
+      platform: (p.insert.platform as string | undefined) || listName(),
+      source: p.insert.source ?? sourceTag,
+      status: "new" as const,
+    };
+  };
 
   // PostgREST bulk inserts must have uniform keys: supabase-js pads any key that
   // is missing on a row with NULL. If ONE row carries an imported created_at, the
@@ -921,7 +967,11 @@ export function CsvImportDialog({
           email: String(b.insert.email ?? ""),
           phone: String(b.insert.phone ?? ""),
           source: String(b.insert.source ?? (tab === "paste" ? "manual_paste" : "csv_import")),
-          amount: b.insert.amount == null ? "" : String(b.insert.amount),
+          amount: String(
+            (b.insert.payload as Record<string, unknown> | undefined)?.amount_raw
+              ?? b.insert.amount
+              ?? "",
+          ),
           timeframe: String(b.insert.timeframe ?? ""),
           matches: dbMatches,
           inFile,
@@ -1076,7 +1126,7 @@ export function CsvImportDialog({
               : (assigneeId === MANAGER ? unassignedFallbackId : assigneeId),
             source: overrideActive ? sourceOverride : "google_sheet",
             list_name: listName().slice(0, 120),
-            mapping: mapping as Record<string, string>,
+            mapping: mappingWithCountryOverride(),
             interval_seconds: Math.max(5, Number(liveEvery) || 60),
             update_existing: true,
             enabled: false,
@@ -1438,7 +1488,7 @@ export function CsvImportDialog({
                 <Select
                   value={officeId}
                   disabled={role !== "admin"}
-                  onValueChange={(v) => { setOfficeId(v); setAssigneeId(MANAGER); }}
+                  onValueChange={(v) => { setOfficeId(v); setAssigneeId(MANAGER); setSourceOverride(NONE); }}
                 >
                   <SelectTrigger><SelectValue placeholder={t("common.office", { defaultValue: "Office" })} /></SelectTrigger>
                   <SelectContent>
@@ -1510,6 +1560,24 @@ export function CsvImportDialog({
                   Pick an existing source, type a custom one, or leave Auto to keep the file's source column.
                 </p>
               </div>
+              <div>
+                <Label>
+                  {t("leads.import.country_override", { defaultValue: "Country (applied to all rows)" })}
+                </Label>
+                <Input
+                  value={countryOverride}
+                  onChange={(e) => setCountryOverride(e.target.value)}
+                  placeholder={t("leads.import.country_override_placeholder", {
+                    defaultValue: "e.g. IT, CA, Germany",
+                  })}
+                  maxLength={80}
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {t("leads.import.country_override_hint", {
+                    defaultValue: "Your value overrides the file's country. Leave blank to use the file value.",
+                  })}
+                </p>
+              </div>
             </div>
 
 
@@ -1572,7 +1640,11 @@ export function CsvImportDialog({
                               <Input className="h-7 text-xs" value={p.phone ?? ""} onChange={(e) => updateParsedField(i, "phone", e.target.value)} />
                             </td>
                             <td className="p-1">
-                              <Input className="h-7 text-xs w-24" value={p.amount?.toString() ?? ""} onChange={(e) => updateParsedField(i, "amount", e.target.value)} />
+                              <Input
+                                className="h-7 text-xs w-24"
+                                value={p.payload?.amount_raw ?? p.amount?.toString() ?? ""}
+                                onChange={(e) => updateParsedField(i, "amount", e.target.value)}
+                              />
                             </td>
                             <td className="p-1">
                               <Input className="h-7 text-xs w-16" value={p.timeframe ?? ""} onChange={(e) => updateParsedField(i, "timeframe", e.target.value)} />

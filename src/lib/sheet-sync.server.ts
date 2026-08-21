@@ -8,7 +8,13 @@
 // cell edit reliably updates the same lead instead of creating a duplicate.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { fetchSheetCsvFromUrl } from "@/lib/sheets.server";
-import { buildSheetRows, parseSheetCsv, autoMapTable, type SheetMapping } from "@/lib/sheet-mapping";
+import {
+  buildSheetRows,
+  parseSheetCsv,
+  autoMapTable,
+  getSheetCountryOverride,
+  type SheetMapping,
+} from "@/lib/sheet-mapping";
 import { emailVariants } from "@/lib/email-normalize";
 
 export type SheetSync = {
@@ -51,6 +57,19 @@ export async function runSheetSync(sync: SheetSync): Promise<SyncResult> {
 
   const mapping = autoMapTable(headers, sync.mapping ?? undefined);
   const builtRaw = buildSheetRows(rows, mapping);
+  const countryOverride = getSheetCountryOverride(sync.mapping);
+  if (countryOverride) {
+    for (const row of builtRaw) {
+      const currentPayload = row.insert.payload;
+      const payload = currentPayload && typeof currentPayload === "object" && !Array.isArray(currentPayload)
+        ? currentPayload as Record<string, unknown>
+        : {};
+      row.insert.payload = { ...payload, country: countryOverride };
+      // A changed override must update already-linked leads even when no sheet
+      // cell changed, so include it in the tracked content fingerprint.
+      row.contentHash = `${row.contentHash}|country:${countryOverride}`;
+    }
+  }
 
   // Two sheet rows can produce the same row identity (same email/phone, or both
   // empty). Keeping both would insert the lead twice AND make the tracking

@@ -10,6 +10,7 @@ import { fetchSheetCsvFromUrl } from "@/lib/sheets.server";
 import { buildSheetRows, parseSheetCsv, autoMapTable } from "@/lib/sheet-mapping";
 import { emailVariants } from "@/lib/email-normalize";
 import type { SheetSync } from "@/lib/sheet-sync.server";
+import { amountDisplayValue } from "@/lib/amount-value";
 
 export type DuplicateMatch = {
   reason: "email" | "phone" | "in_sheet";
@@ -60,6 +61,16 @@ function label(row: Record<string, unknown>) {
   const name = [row.full_name, [row.first_name, row.last_name].filter(Boolean).join(" ")]
     .map((v) => String(v ?? "").trim()).find(Boolean);
   return name || String(row.email ?? row.phone ?? "Unnamed lead");
+}
+
+function fieldValue(row: Record<string, unknown>, field: string): unknown {
+  if (field === "amount") {
+    return amountDisplayValue(
+      row.amount,
+      row.payload as Record<string, unknown> | null | undefined,
+    );
+  }
+  return row[field];
 }
 
 type Built = ReturnType<typeof buildSheetRows>[number];
@@ -259,8 +270,8 @@ export async function computePendingDuplicates(
           email: (b.insert.email as string | null) ?? null,
           phone: (b.insert.phone as string | null) ?? null,
           fields: FIELD_LABELS
-            .filter(([f]) => String(b.insert[f] ?? "").trim() !== "")
-            .map(([f, l]) => ({ label: l, value: String(b.insert[f]) })),
+            .filter(([f]) => String(fieldValue(b.insert, f) ?? "").trim() !== "")
+            .map(([f, l]) => ({ label: l, value: String(fieldValue(b.insert, f)) })),
           match,
         });
       }

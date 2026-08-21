@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -12,6 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
+import { parseAmountNumber } from "@/lib/amount-value";
 
 const INBOX = "__inbox__";
 const NONE = "__none__";
@@ -19,6 +20,7 @@ const UNASSIGNED = "__unassigned__";
 
 export interface AddLeadOffice { id: string; name?: string | null; company_name?: string | null }
 export interface AddLeadAgent { user_id: string; full_name: string | null; office_id: string | null }
+interface LeadSourceOption { name: string; office_id: string | null }
 
 export interface AddLeadDialogProps {
   open: boolean;
@@ -44,7 +46,7 @@ export function AddLeadDialog({
   const [phone, setPhone] = useState("");
   const [platform, setPlatform] = useState("");
   const [source, setSource] = useState<string>("manual");
-  const [sourceOptions, setSourceOptions] = useState<string[]>([]);
+  const [sourceRows, setSourceRows] = useState<LeadSourceOption[]>([]);
   const [amount, setAmount] = useState("");
   const [timeframe, setTimeframe] = useState("");
   const [desc1, setDesc1] = useState("");
@@ -64,15 +66,20 @@ export function AddLeadDialog({
     setDesc1(""); setDesc2(""); setDesc3(""); setDesc4(""); setNote("");
     void (async () => {
       const { data } = await supabase
-        .from("lead_sources" as never)
-        .select("name")
+        .from("lead_sources")
+        .select("name, office_id")
         .order("name", { ascending: true });
-      const names = ((data ?? []) as unknown as { name: string }[]).map((r) => r.name);
-      setSourceOptions(names);
+      setSourceRows((data ?? []) as LeadSourceOption[]);
     })();
   }, [open, role, defaultOfficeId, currentUserId]);
 
   const officeAgents = agents.filter((a) => a.office_id === officeId);
+  const sourceOptions = useMemo(
+    () => sourceRows
+      .filter((row) => row.office_id === null || row.office_id === officeId)
+      .map((row) => row.name),
+    [officeId, sourceRows],
+  );
 
   const submit = async () => {
     const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(" ").trim();
@@ -106,7 +113,8 @@ export function AddLeadDialog({
         }
       }
 
-      const amt = amount.trim() ? Number(amount.replace(/[^\d.-]/g, "")) : null;
+      const rawAmount = amount.trim();
+      const numericAmount = rawAmount ? parseAmountNumber(rawAmount) : undefined;
 
       const insert: Record<string, unknown> = {
         office_id: targetOfficeId,
@@ -118,14 +126,17 @@ export function AddLeadDialog({
         phone: phoneTrim,
         platform: platform.trim() || null,
         source: source || "manual",
-        amount: amt != null && Number.isFinite(amt) ? amt : null,
+        amount: numericAmount ?? null,
         timeframe: timeframe.trim() || null,
         description_1: desc1.trim() || null,
         description_2: desc2.trim() || null,
         description_3: desc3.trim() || null,
         description_4: desc4.trim() || null,
         status: "new",
-        payload: { entry: "manual" },
+        payload: {
+          entry: "manual",
+          ...(rawAmount ? { amount_raw: amount } : {}),
+        },
       };
 
       const { data, error } = await supabase.from("leads").insert(insert as never).select("id").single();
@@ -165,7 +176,7 @@ export function AddLeadDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">{t("common.office")}</Label>
-              <Select value={officeId} onValueChange={(v) => { setOfficeId(v); setAssigneeId(UNASSIGNED); }} disabled={role !== "admin" && !!defaultOfficeId}>
+              <Select value={officeId} onValueChange={(v) => { setOfficeId(v); setAssigneeId(UNASSIGNED); setSource("manual"); }} disabled={role !== "admin" && !!defaultOfficeId}>
                 <SelectTrigger><SelectValue placeholder={t("leads.import.choose_office", { defaultValue: "Choose office" })} /></SelectTrigger>
                 <SelectContent>
                   {role === "admin" && (
@@ -235,7 +246,11 @@ export function AddLeadDialog({
             </div>
             <div>
               <Label className="text-xs">{t("common.amount")}</Label>
-              <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="10000" />
+              <Input
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="10000, around 5k, or any text"
+              />
             </div>
             <div>
               <Label className="text-xs">{t("common.duration")}</Label>

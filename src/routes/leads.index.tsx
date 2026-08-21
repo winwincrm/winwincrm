@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import {
   Search, Filter as FilterIcon, Upload, ListChecks, Eye, Phone,
   Pencil, Trash2, Copy, X, ChevronLeft, ChevronRight, Plus, Download,
-  Settings2, ArrowLeftRight, RefreshCw,
+  Settings2, ArrowLeftRight, RefreshCw, MoreHorizontal,
 } from "lucide-react";
 import { useReassignPrefs } from "@/lib/reassign-prefs";
 
@@ -47,8 +47,17 @@ import {
   CONTACT_RELEVANT_STATUSES, type LeadStatusGroup,
 } from "@/lib/lead-status";
 import { cn } from "@/lib/utils";
+import { amountDisplayValue } from "@/lib/amount-value";
 import { useSoftphone, buildCallHref, SOFTPHONES, type Softphone } from "@/lib/softphone";
 import { MultiSelectPopover } from "@/components/MultiSelectPopover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // ---------- Search params ----------
 
@@ -208,7 +217,7 @@ function leadsToCsv(
       l.office_id ? (officeMap.get(l.office_id) ?? "") : "",
       l.assigned_user_id ? (agentMap.get(l.assigned_user_id) ?? "") : "",
       l.source ?? "", l.platform ?? "", country,
-      l.amount ?? "", l.percentage ?? "", l.timeframe ?? "",
+      amountDisplayValue(l.amount, l.payload) ?? "", l.percentage ?? "", l.timeframe ?? "",
       l.lead_kind ?? "", l.is_in_house ?? "",
       l.last_contacted_at ?? "", l.assigned_at ?? "",
       l.created_at, l.updated_at,
@@ -1337,18 +1346,6 @@ function LeadsContent() {
               <Button variant="outline" size="sm" className="h-9" onClick={() => setImportOpen(true)}>
                 <Upload className="h-4 w-4 mr-1" /> {t("leads.import.title")}
               </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                className="h-9"
-                disabled={deletingAll || filteredTotal === 0}
-                onClick={() => setConfirmDeleteAll(true)}
-              >
-                <Trash2 className="h-4 w-4 mr-1" />
-                {deletingAll
-                  ? t("common.loading", { defaultValue: "Loading…" })
-                  : t("leads.delete_filtered", { defaultValue: "Delete filtered" }) + ` (${filteredTotal})`}
-              </Button>
             </>
 
           )}
@@ -1501,6 +1498,46 @@ function LeadsContent() {
               </Button>
             </PopoverContent>
           </Popover>
+          )}
+          {(role === "admin" || role === "manager" || role === "superiormanager") && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9"
+                  title={t("common.more_actions", { defaultValue: "More actions" })}
+                  aria-label={t("common.more_actions", { defaultValue: "More actions" })}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72">
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {t("common.more_actions", { defaultValue: "More actions" })}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={deletingAll || filteredTotal === 0}
+                  onSelect={() => setConfirmDeleteAll(true)}
+                  className="items-start text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="mt-0.5 h-4 w-4" />
+                  <span className="flex flex-col gap-0.5">
+                    <span>
+                      {deletingAll
+                        ? t("common.loading", { defaultValue: "Loading…" })
+                        : t("leads.delete_filtered", { defaultValue: "Delete matching leads" }) + ` (${filteredTotal})`}
+                    </span>
+                    <span className="text-[11px] font-normal text-muted-foreground">
+                      {t("leads.delete_filtered_hidden_hint", {
+                        defaultValue: "Permanently deletes every matching lead after confirmation",
+                      })}
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </div>
