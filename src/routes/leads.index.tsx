@@ -598,10 +598,55 @@ function LeadsContent() {
         ? (profile?.office_id ? [profile.office_id] : undefined)
         : (officeSelC.length ? officeSelC : undefined);
     const agentSel = search.agent ?? [];
-    const agentIds = role === "agent"
-      ? (profile?.user_id ? [profile.user_id] : [])
-      : agentSel.filter((a) => a !== "__unassigned");
+    const agentIds = agentSel.filter((a) => a !== "__unassigned");
     const wantsUnassigned = role !== "agent" && agentSel.includes("__unassigned");
+
+    if (role === "agent") {
+      // Count through the same RPC that produced the visible agent rows. This
+      // keeps the tiles and table on one auth.uid()-scoped source of truth.
+      const byStatus: Record<string, number> = {};
+      const chunkSize = 1000;
+      let offset = 0;
+      for (;;) {
+        const { data, error } = await supabase.rpc("leads_page", {
+          p_office: undefined,
+          p_agent: undefined,
+          p_unassigned: undefined,
+          p_platform: search.platform?.length ? search.platform : undefined,
+          p_source: search.source?.length ? search.source : undefined,
+          p_country: search.country?.length ? search.country : undefined,
+          p_q: search.q?.trim() || undefined,
+          p_from: search.from || undefined,
+          p_to: search.to || undefined,
+          p_src: search.src && search.src !== "all" ? search.src : undefined,
+          p_group: undefined,
+          p_status: undefined,
+          p_offset: offset,
+          p_limit: chunkSize,
+          p_sort: "newest",
+          p_inbox_only: undefined,
+        });
+        if (seq !== countsSeq.current) return;
+        if (error) {
+          setLoadError(error.message);
+          return;
+        }
+        const rows = (data ?? []) as Array<{ status: string }>;
+        for (const row of rows) byStatus[row.status] = (byStatus[row.status] ?? 0) + 1;
+        offset += rows.length;
+        if (rows.length < chunkSize) break;
+      }
+
+      const next: Record<LeadStatusGroup | "total", number> = {
+        total: offset, new: 0, in_progress: 0, callback: 0, appointment: 0, converted: 0, bad: 0,
+      };
+      setStatusCounts(byStatus);
+      for (const group of STATUS_GROUP_ORDER) {
+        next[group] = STATUSES_BY_GROUP[group].reduce((sum, status) => sum + (byStatus[status] ?? 0), 0);
+      }
+      setGroupCounts(next);
+      return;
+    }
 
     const { data, error } = await supabase.rpc("leads_group_counts", {
       p_office: officeArg,
